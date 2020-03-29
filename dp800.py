@@ -126,7 +126,7 @@ class dp800:
             Function to query: current ('CURR') or voltage ('VOLT'). If both are
             omitted the query will return the channel range and both the current and
             voltage values.
-        
+
         Returns
         -------
         resp : float or list
@@ -282,7 +282,7 @@ class dp800:
 
     def get_delay_time_method(self):
         pass
-    
+
     # --- DISPlay commands ---
 
     # --- IEEE488.2 common commands ---
