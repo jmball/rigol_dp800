@@ -89,12 +89,12 @@ class dp800:
 
         Parameters
         ----------
-        channel : int
+        channel : int, optional
             Channel to select. If omitted, the currently selected channel will be used.
-        voltage : float; 'MIN', 'MAX', or 'DEF'
+        voltage : float; 'MIN', 'MAX', or 'DEF'; optional
             Value to set the voltage of the selected channel to. 'MIN', 'MAX', and
             'DEF' denote the minimum, maximum, and default settings respectively.
-        current : float; 'MIN', 'MAX', or 'DEF'
+        current : float; 'MIN', 'MAX', or 'DEF'; optional
             Value to set the current of the selected channel to. 'MIN', 'MAX', and
             'DEF' denote the minimum, maximum, and default settings respectively.
         """
@@ -120,9 +120,9 @@ class dp800:
 
         Parameters
         ----------
-        channel : int
+        channel : int, optional
             Channel to select. If omitted, the currently selected channel will be used.
-        function : 'CURR' or 'VOLT'
+        function : 'CURR' or 'VOLT', optional
             Function to query: current ('CURR') or voltage ('VOLT'). If both are
             omitted the query will return the channel range and both the current and
             voltage values.
@@ -135,7 +135,7 @@ class dp800:
             comprised of the currently selected channel, its rated values, the set
             value of the voltage, and the set value of the current.
         """
-        cmd = "APPL?"
+        cmd = ":APPL?"
 
         if channel is not None:
             cmd = cmd + f" CH{channel}"
@@ -150,11 +150,139 @@ class dp800:
             cmd = cmd + f"{,function}"
             return self.instr.query(cmd)
         else:
-            ch, rating, voltage, current = self.instr.query(cmd).split(", ")
+            ch, rating, voltage, current = self.instr.query(cmd).split(",")
             return ch, rating, float(voltage), float(current)
 
     # --- DELAY commands ---
 
+    def set_delay_cycles(self, finite, cycles=None):
+        """Set the number of cycles for the delayer.
+
+        Parameters
+        ----------
+        finite : 'N' or 'I'
+            Choose 'N' for a finite number of cycles specified by `cycles`. Choose 'I'
+            for an infinite number of cycles.
+        cycles : int, optional
+            Number of delay cycles. Defaults to 1 if omitted. If `finite` is 'I' this
+            paramter is ignored. Must be in range 1 - 99999.
+        """
+        cmd = f":DELAY:CYCLE {finite}"
+
+        if (finite == 'N') & (cycles is not None):
+            cmd = cmd + f",{cycles}"
+
+        self.instr.write(cmd)
+
+    def get_delay_cycles(self):
+        """Get the number of cycles for the delayer.
+
+        Returns
+        -------
+        resp : str or list
+            Formatted number of cycles for the delayer. Can be 'I' or list comprised of
+            'N' and and integer representing the number of cycles.
+        """
+        cmd = ":DELAY:CYCLE?"
+        resp = self.instr.query(cmd).split(",")
+        if len(resp) == 1:
+            return resp[0]
+        else:
+            return resp[0], int(resp[1])
+
+    def set_delay_end_state(self, endstate):
+        """Set the state of the instrument when the delayer stops.
+
+        Parameters
+        ----------
+        endstate : 'ON', 'OFF', 'LAST'
+            State to put instrument in when delayer stops. 'ON' switches on the output,
+            'OFF' switches off the output, and 'LAST' uses the last state.
+        """
+        cmd = f":DELAY:ENDS {endstate}"
+        self.instr.write(cmd)
+
+    def get_delay_end_state(self):
+        """Get the state of the instrument when the delayer stops.
+
+        Returns
+        -------
+        endstate : 'ON', 'OFF', 'LAST'
+            State to put instrument in when delayer stops. 'ON' switches on the output,
+            'OFF' switches off the output, and 'LAST' uses the last state.
+        """
+        cmd = ":DELAY:ENDS?"
+        endstate = self.instr.query(cmd)
+        return endstate
+
+    def set_delay_groups(self, groups):
+        """Set the number of output groups of the delayer.
+
+        Parameters
+        ----------
+        groups : int
+            Number of output groups of delayer cycles, i.e. number of times output
+            turns on or off. Must be in range 1-2048.
+        """
+        cmd = f":DELAY:GROUP {groups}"
+        self.instr.write(cmd)
+
+    def get_delay_groups(self):
+        """Get the number of output groups of the delayer.
+
+        Returns
+        -------
+        groups : int
+            Number of output groups of delayer cycles, i.e. number of times output
+            turns on or off.
+        """
+        cmd = f":DELAY:GROUP?"
+        groups = int(self.instr.query(cmd))
+        return groups
+
+    def set_delay_parameters(self):
+        """Set the delayer parameters of the specified group."""
+        pass
+
+    def get_delay_parameters(self):
+        """Get the delayer parameters of the specified group."""
+        pass
+
+    def set_delay_state(self, enable):
+        """Enable/disable the delay output function.
+
+        Applies to currently selected channel.
+
+        Parameters
+        ----------
+        """
+        pass
+
+    def get_delay_state(self, enable):
+        """Get the enable/disable state of the delay output function.
+
+        Applies to current channel.
+        """
+        pass
+
+    def set_delay_state_pattern(self):
+        pass
+
+    def get_delay_state_pattern(self):
+        pass
+
+    def set_delay_stop_condition(self):
+        pass
+
+    def get_delay_stop_condition(self):
+        pass
+
+    def set_delay_time_method(self):
+        pass
+
+    def get_delay_time_method(self):
+        pass
+    
     # --- DISPlay commands ---
 
     # --- IEEE488.2 common commands ---
