@@ -287,7 +287,236 @@ class dp800:
 
     # --- IEEE488.2 common commands ---
 
+    def clear_event_registers(self):
+        """Clear all event registers."""
+        self.instr.write("*CLS")
+
+    def set_standard_event_enable_register(self, value):
+        """Enable bits in the standard event enable register.
+
+        Parameters
+        ----------
+        value : int
+            Decimal value of the enable register corresponding to the sum of binary
+            weights of the bits to be enabled, e.g. to enable bits 1 and 3 only would
+            require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
+        """
+        if (value >= 0) & (value <= 255):
+            self.instr.write(f"*ESE {value}")
+        else:
+            raise ValueError(
+                f"Value: {value} is out of range. Must be in range 0-255."
+            )
+
+    def get_standard_event_enable_register(self):
+        """Get the standard event enable register value.
+
+        Returns
+        -------
+        value : int
+            Register value.
+        """
+        value = int(self.instr.query("*ESE?"))
+
+        return value
+
+    def get_standard_event_register(self):
+        """Get the standard event register value.
+
+        Returns
+        -------
+        value : int
+            Register value.
+        """
+        value = int(self.instr.query("*ESR?"))
+
+        return value
+
+    def get_id(self):
+        """Get instrument identity string.
+
+        Returns
+        -------
+        id : list of str
+            List of identification strings consisting of manufacturer, model, serial
+            number, and board version number in order.
+        """
+        idn = self.instr.query("*IDN?").split(",")
+
+        return idn
+
+    def set_opc(self):
+        """Set operation complete.
+
+        Sets bit 0 of the standard event register after completing the current
+        operation.
+        """
+        self.instr.write("*OPC")
+
+    def get_opc(self):
+        """Query whether current operation is complete.
+
+        Returns
+        -------
+        opc : int
+            Binary value representing the completion state of the current command:
+
+                * 0 : incomplete
+                * 1 : complete
+        """
+        return int(self.instr.query("*OPC?"))
+
+    def get_option_installation_status(self):
+        """Get the status of installed options.
+
+        Returns
+        -------
+        options : list of str
+            List of options. If an option is installed its name is returned, otherwise
+            the query returns a 0.
+        """
+        options = self.instr.query("*OPT")
+
+        return options
+
+    def set_power_on_status_clear_bit(self, value):
+        """Set the power-on status clear bit.
+
+        Parameters
+        ----------
+        value : {0, 1}
+            Value of power-on status clear bit. Values:
+
+                * 0 : Cleared, status enable registers maintain values at power down.
+                * 1 : Set, all status and enable registers are cleared on power up.
+        """
+        cmd = f"*PSC {value}"
+        self.instr.write(cmd)
+
+    def get_power_on_status_clear_bit(self):
+        """Get the power-on status clear bit.
+
+        Returns
+        -------
+        value : int
+            Value of power-on status clear bit. Values:
+
+                * 0 : Cleared, status enable registers maintain values at power down.
+                * 1 : Set, all status and enable registers are cleared on power up.
+        """
+        cmd = f"*PSC?"
+        value = int(self.instr.query(cmd))
+
+        return value
+
+    def recall_setup(self, number):
+        """Recall instrument setup from setting buffer.
+
+        Parameters
+        ----------
+        number : {1 - 9}
+            Buffer number, 1 =< number =< 9.
+        """
+        cmd = f"*RCL {number}"
+        self.instr.write(cmd)
+
+    def reset(self):
+        """Reset the instrument to the factory default configuration."""
+        cmd = f"*RST"
+        self.instr.write(cmd)
+
+    def save_setup(self, number):
+        """Save the instrument setup in a settings buffer.
+
+        Parameters
+        ----------
+        number : {1 - 9}
+            Buffer number, 1 =< number =< 9.
+        """
+        cmd = f"*SAV {number}"
+        self.instr.write(cmd)
+
+    def set_status_byte_enable_register(self, value):
+        """Enable bits in the status byte enable register.
+
+        Parameters
+        ----------
+        value : int
+            Decimal value of the enable register corresponding to the sum of binary
+            weights of the bits to be enabled, e.g. to enable bits 1 and 3 only would
+            require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
+        """
+        if (value >= 0) & (value <= 255):
+            self.instr.write(f"*SRE {value}")
+        else:
+            raise ValueError(
+                f"Value: {value} is out of range. Must be in range 0-255."
+            )
+
+    def get_status_byte_enable_register(self):
+        """Get the status byte enable register value.
+
+        Returns
+        -------
+        value : int
+            Register value.
+        """
+        value = int(self.instr.query("*SRE?"))
+
+        return value
+
+    def get_status_byte_register(self):
+        """Get the status byte register value.
+
+        Querying this register does not clear it.
+
+        Returns
+        -------
+        value : int
+            Register value.
+        """
+        value = int(self.instr.query("*STB?"))
+
+        return value
+
+    def trigger(self):
+        """Generate a trigger.
+
+        Only available when bus (software) trigger is selected.
+        """
+        self.instr.write("*TRG")
+
+    def get_self_test_results(self):
+        """Get the results of the instrument self-test.
+
+        Returns
+        -------
+        result : list
+            List of test results for the top board, bottom board, and fan.    
+        """
+        result = self.instr.query("*TST?").split(",")
+
+        return result
+
+    def wait(self):
+        """Wait until processing all pending commands is complete."""
+        self.instr.write("*WAI")
+
     # --- INITiate command ---
+
+    def init_trigger(self, immediate=False):
+        """Initialise the trigger system.
+
+        Parameters
+        ----------
+        immediate : bool
+            If True, the instrument will execute a complete trigger operation when it
+            receives a trigger from the remote interface.
+        """
+        cmd = ":INIT"
+        if immediate is True:
+            cmd = cmd + ":IMM"
+        self.instr.write(cmd)
 
     # --- INSTrument commands ---
 
