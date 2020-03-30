@@ -520,6 +520,75 @@ class dp800:
 
     # --- INSTrument commands ---
 
+    def set_trigger_coupling_channels(self, channels):
+        """Set trigger coupling channels.
+
+        Only applicable to multi-channel models.
+
+        Parameters
+        ----------
+        channels : 'ALL', 'NONE', or list containing 'CH1', 'CH2', 'CH3'
+            Trigger coupling channels. If list, should contain at least two channels.
+        """
+        cmd = ":INST:COUP "
+        if type(channels) is list:
+            channels = channels.join(",")
+        cmd = cmd + channels
+        self.instr.write(cmd)
+
+    def get_trigger_coupling_channels(self):
+        """Get trigger coupling channels.
+
+        Only applicable to multi-channel models.
+
+        Returns
+        -------
+        channels : str or list
+            If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
+            where each element is a channel name and rating separated by a `:`.
+        """
+        channels = self.instr.query(":INST:COUP?").split(",")
+        if len(channels) == 1:
+            channels = channels[0]
+
+        return channels
+
+    def set_channel(self, channel):
+        """Select the current channel.
+
+        Only applicable to multi-channel models.
+
+        The instrument provides two functions for this: NSELct and SELect. NSELect
+        uses a bare number, e.g. 2, whereas SELect requires 'CH' be prepended. This
+        method always uses SELect (omitting redundant ":SEL") because it requires
+        fewer characters to be sent to the instrument.
+
+        Parameters
+        ----------
+        channel : int
+            Channel number.
+        """
+        self.instr.write(f":INST CH{channel}")
+
+    def get_channel(self):
+        """Get the currently selected channel.
+
+        Only applicable to multi-channel models.
+
+        The instrument provides two functions for this: NSELct and SELect. NSELect
+        returns a bare number, e.g. 2, whereas SELect returns a channel name and
+        rated ouptut. This method always uses NSELect because fewer characters are
+        exchanged in the query operation.
+
+        Parameters
+        ----------
+        channel : int
+            Channel number.
+        """
+        channel = int(self.instr.query(":INST:NSEL?"))
+
+        return channel
+
     # --- LIC commands ---
 
     # --- MEASure commadns ---
