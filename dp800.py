@@ -591,6 +591,18 @@ class dp800:
 
     # --- LIC commands ---
 
+    def install_options(self, options_licence):
+        """Install options.
+
+        Only applicable to DP831/DP832/DP821/DP811.
+
+        Parameters
+        ----------
+        options_licence : str
+            Unique 28-byte ASCII string only including English letters and numbers.
+        """
+        self.instr.write(f":LIC:SET {options_licence}")
+
     # --- MEASure commadns ---
 
     # --- MEMory commands ---
