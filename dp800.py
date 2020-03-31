@@ -76,10 +76,6 @@ class dp800:
         """Get the instrument configuration."""
         pass
 
-    def reset(self):
-        """Reset the instrument to built-in default configuration."""
-        pass
-
     # --- ANALyser commands ---
 
     # --- APPLy commands---
@@ -1170,6 +1166,153 @@ class dp800:
     # --- STORe commands ---
 
     # --- SYSTem commands ---
+
+    def set_beeper():
+        pass
+
+    def get_beeper():
+        pass
+
+    def set_gpib_config():
+        pass
+
+    def get_gpib_config():
+        pass
+
+    def set_lan_config():
+        pass
+
+    def get_lan_config():
+        pass
+
+    def set_rs232_config():
+        pass
+
+    def get_rs232_config():
+        pass
+
+    def set_contrast():
+        pass
+
+    def get_contrast():
+        pass
+
+    def get_error():
+        """Query and clear error messages in the error queue.
+
+        Returns
+        -------
+        error : list
+            Error code and error message.
+        """
+        error = self.instr.query(":SYST:ERR").split(",")
+
+        return error
+
+    def set_key_keylock():
+        pass
+
+    def get_key_keylock():
+        pass
+
+    def set_keylock_enable(self, enable):
+        """Enable/disable front panel keys in remote mode.
+
+        Parameters
+        ----------
+        enable : bool
+            Enabled/disabled state of the front panel lock
+        """
+        cmd = ":SYST:KLOC:STAT "
+        if enable is True:
+            cmd += "ON"
+        else:
+            cmd += "OFF"
+        self.instr.write(cmd)
+
+    def get_keylock_enable(self):
+        """Querey enable/disable state of front panel keys in remote mode.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of the front panel lock
+        """
+        cmd = ":SYST:KLOC:STAT?"
+        enable = self.instr.query(cmd)
+        if enable == "ON":
+            enable = True
+        else:
+            enable = False
+
+        return enable
+
+    def set_language():
+        pass
+
+    def get_language():
+        pass
+
+    def set_local(self):
+        """Return instrument to local mode."""
+        self.instr.write(":SYST:LOC")
+
+    def set_lock():
+        pass
+
+    def get_lock():
+        pass
+
+    def set_on_off_sync():
+        pass
+
+    def get_on_off_sync():
+        pass
+
+    def set_otp_enable():
+        pass
+
+    def get_otp_enable():
+        pass
+
+    def set_power_on_config_mode():
+        pass
+
+    def get_power_on_config_mode():
+        pass
+
+    def set_remote(self):
+        """Set the instrument to remote mode."""
+        self.instr.write(":SYST:REM")
+
+    def set_brightness():
+        pass
+
+    def get_brightness():
+        pass
+
+    def set_screen_saver_enable():
+        pass
+
+    def get_temperature_test_result(self):
+        """Query the self-test result of the temperature.
+
+        Returns
+        -------
+        temperature : float
+            Temperature in degrees celcius.
+        """
+        temperature = float(self.instr.query(":SYST:SELF:TEST:TEMP?"))
+        return temperature
+
+    def set_track_mode():
+        pass
+
+    def get_track_mode():
+        pass
+
+    def get_scpi_version():
+        pass
 
     # --- TIMEr commands ---
 
