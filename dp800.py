@@ -504,18 +504,9 @@ class dp800:
 
     # --- INITiate command ---
 
-    def init_trigger(self, immediate=False):
-        """Initialise the trigger system.
-
-        Parameters
-        ----------
-        immediate : bool
-            If True, the instrument will execute a complete trigger operation when it
-            receives a trigger from the remote interface.
-        """
+    def init_trigger(self):
+        """Initialise the trigger system."""
         cmd = ":INIT"
-        if immediate is True:
-            cmd = cmd + ":IMM"
         self.instr.write(cmd)
 
     # --- INSTrument commands ---
@@ -603,7 +594,7 @@ class dp800:
         """
         self.instr.write(f":LIC:SET {options_licence}")
 
-    # --- MEASure commadns ---
+    # --- MEASure commands ---
 
     # --- MEMory commands ---
 
