@@ -39,10 +39,9 @@ class dp800:
         self,
         resource_name,
         reset=True,
-        set_default_configuration=True,
         **resource_kwargs,
     ):
-        """Conntect to the instrument.
+        """Conntect to the instrument and set remote mode.
 
         Parameters
         ----------
@@ -52,9 +51,6 @@ class dp800:
             info on correct formatting for resource names.
         reset : bool, optional
             Reset the instrument to the built-in default configuration.
-        set_default_configuration : bool, optional
-            If True, set all configuration settings to defaults defined in the
-            `set_configuraiton` method.
         resource_kwargs : dict
             Keyword arguments to be used to change instrument attributes after
             construction.
@@ -62,20 +58,12 @@ class dp800:
         self.instr = rm.open_resource(resource_name, **resource_kwargs)
         if reset is True:
             self.reset()
-        if set_default_configuration is True:
-            self.set_configuration()
+        self.set_remote()
 
     def disconnect(self):
-        """Disconnect the instrument."""
+        """Disconnect the instrument after returning to local mode."""
+        self.set_local()
         self.instr.close()
-
-    def set_configuration(self):
-        """Set the instrument configuration."""
-        pass
-
-    def get_configuration(self):
-        """Get the instrument configuration."""
-        pass
 
     # --- ANALyser commands ---
 
