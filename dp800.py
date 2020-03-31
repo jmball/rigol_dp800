@@ -59,20 +59,12 @@ class dp800:
         if reset is True:
             self.reset()
         self.set_remote()
-        self._add_idn()
+        logger.info(f"{','.join(self.get_id())} connected!")
 
     def disconnect(self):
         """Disconnect the instrument after returning to local mode."""
         self.set_local()
         self.instr.close()
-
-    def _add_idn(self):
-        """Add identity info attributes from identity string."""
-        idn = self.get_id()
-        self.manufacturer = idn[0]
-        self.model = idn[1]
-        self.serial_number = idn[2]
-        self.firmware_version = idn[3]
 
     # --- ANALyser commands ---
 
@@ -380,7 +372,7 @@ class dp800:
             number, and board version number in order.
         """
         idn = self.instr.query("*IDN?").split(",")
-        
+
         if self.check_errors is True:
             self.get_error()
 
