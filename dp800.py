@@ -632,6 +632,428 @@ class dp800:
 
     # --- OUTPut commands ---
 
+    def get_output_mode(self, channel=None):
+        """Get the output mode of the specified channel.
+
+        The instrument offers two functionally equivalent commands to query the output
+        mode: :OUTPut:CVCC? and :OUTPut:MODE?. There is no difference in the amount of
+        data transferred. This method uses :OUTPut:MODE?.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        mode : str
+            Output mode: 'CV', 'CC', or 'UR' representing constant voltage, constant
+            current, or unregulated, respectively.
+        """
+        cmd = ":OUTP:MODE?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        mode = self.instr.query(cmd)
+
+        return mode
+
+    def get_ocp(self, channel=None):
+        """Query whether current of a channel has exceeded its OCP value.
+
+        The output turns off automatically when the overcurrent protection (OCP) value
+        is exceeded.
+
+        The instrument offers two functionally equivalent commands to query whether the
+        OCP value has been exceeded: :OUTPut:OCP:ALAR? and :OUTPut:OCP:QUES?. There is
+        no difference in the amount of data transferred. This method uses
+        :OUTPut:OCP:ALAR?.
+
+        The instrument also provides a `source` command for this function, which is not
+        used.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        ocp_alarm : bool
+            If True, overcurrent protection value has been exceeded.
+        """
+        cmd = ":OUTP:OCP:ALAR?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        ocp_alarm = self.instr.query(cmd)
+        if ocp_alarm == 'YES':
+            ocp_alarm = True
+        else:
+            ocp_alarm = False
+
+        return ocp_alarm
+
+    def clear_ocp_label(self, channel=None):
+        """Clear the overcurrent protection alarm label.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OCP:CLEAR"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        self.instr.write(cmd)
+
+    def set_ocp_enable(self, enable, channel=None):
+        """Enable/disable the overcurrent protection function.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        enable : bool
+            Enabled/disable overcurrent protection function.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OCP "
+        if channel is not None:
+            cmd += f"CH{channel},"
+        if enable is True:
+            cmd += "ON"
+        else:
+            cmd += "OFF"
+        self.instr.write(cmd)
+
+    def get_ocp_enable(self, channel=None):
+        """Query enable/disabled state of the overcurrent protection function.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of overcurrent protection function.
+        """
+        cmd = ":OUTP:OCP?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        enable = self.instr.query(cmd)
+        if enable == 'ON':
+            enable = True
+        else:
+            enable = False
+
+        return enable
+
+    def set_ocp_value(self, value, channel=None):
+        """Set the overcurrent protection value for a channel.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        value : float; 'MIN', 'MAX'
+            Overcurrent protection value.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OCP:VAL "
+        if channel is not None:
+            cmd += f"CH{channel},"
+        cmd += f"{value}"
+        self.instr.write(cmd)
+
+    def get_ocp_value(self, channel=None):
+        """Get the overcurrent protection value for a channel.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        value : float
+            Overcurrent protection value.
+        """
+        #TODO: Manual suggests this function can also take MIN and MAX arguments. Test
+        # what this does.
+        cmd = ":OUTP:OCP:VAL?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+
+        # TODO: test if float is returned when set to MIN or MAX
+        value = float(self.instr.query(cmd))
+
+        return value
+
+    def get_ovp(self, channel=None):
+        """Query whether current of a channel has exceeded its OVP value.
+
+        The output turns off automatically when the overvoltage protection (OVP) value
+        is exceeded.
+
+        The instrument offers two functionally equivalent commands to query whether the
+        OVP value has been exceeded: :OUTPut:OVP:ALAR? and :OUTPut:OVP:QUES?. There is
+        no difference in the amount of data transferred. This method uses
+        :OUTPut:OVP:ALAR?.
+
+        The instrument also provides a `source` command for this function, which is not
+        used.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        ovp_alarm : bool
+            If True, overvoltage protection value has been exceeded.
+        """
+        cmd = ":OUTP:OVP:ALAR?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        ovp_alarm = self.instr.query(cmd)
+        if ovp_alarm == 'YES':
+            ovp_alarm = True
+        else:
+            ovp_alarm = False
+
+        return ovp_alarm
+
+    def clear_ovp_label(self, channel=None):
+        """Clear the overvoltage protection alarm label.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OVP:CLEAR"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        self.instr.write(cmd)
+
+    def set_ovp_enable(self, enable, channel=None):
+        """Enable/disable the overvoltage protection function.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        enable : bool
+            Enable/disable overvoltage protection function.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OVP "
+        if channel is not None:
+            cmd += f"CH{channel},"
+        if enable is True:
+            cmd += "ON"
+        else:
+            cmd += "OFF"
+        self.instr.write(cmd)
+
+    def get_ovp_enable(self, channel=None):
+        """Query enable/disabled state of the overvoltage protection function.
+        
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of overvoltage protection function.
+        """
+        cmd = ":OUTP:OVP?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        enable = self.instr.query(cmd)
+        if enable == "ON":
+            enable = True
+        else:
+            enable = False
+        return enable
+
+    def set_ovp_value(self, value, channel=None):
+        """Set the overvoltage protection value for a channel.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        value : float; 'MIN', 'MAX'
+            Overvoltage protection value.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:OVP:VAL "
+        if channel is not None:
+            cmd += f"CH{channel},"
+        cmd += f"{value}"
+        self.instr.write(cmd)
+
+    def get_ovp_value(self, channel=None):
+        """Get the overvoltage protection value for a channel.
+
+        The instrument provides two commands to set this function. This method uses
+        the `output` command rather than the `source` command.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        value : float
+            Overvoltage protection value.
+        """
+        #TODO: Manual suggests this function can also take MIN and MAX arguments. Test
+        # what this does.
+        cmd = ":OUTP:OVP:VAL?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+
+        # TODO: test if float is returned when set to MIN or MAX
+        value = float(self.instr.query(cmd))
+
+        return value
+
+    def set_output_range(self, range):
+        """Only applicable to single channel model."""
+        pass
+
+    def set_output_sense_enable(self, enable, channel=None):
+        """Enable/disable output sense function.
+
+        Only supported on some channels for some models.
+
+        Parameters
+        ----------
+        enable : bool
+            Enable/disable the sense function.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP:SENS "
+        if channel is not None:
+            cmd += f"CH{channel},"
+        if enable is True:
+            cmd += "ON"
+        else:
+            cmd += "OFF"
+        self.instr.write(cmd)
+
+    def get_output_sense_enable(self, channel=None):
+        """Get enable/disable state of output sense function.
+
+        Only supported on some channels for some models.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of the sense function.
+        """
+        cmd = ":OUTP:SENS?"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        enable = self.instr.query(cmd)
+        if enable == 'ON':
+            enable = True
+        else:
+            # On models where the function is not supported the instrument returns
+            # 'NONE'. This is represented by this function as disabled.
+            enable = False
+        return enable
+
+    def set_output_enable(self, enable, channel=None):
+        """Enable/disable the output of a channel.
+
+        Parameters
+        ----------
+        enable : bool
+            Enabled/disabled state of the channel output
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = ":OUTP "
+        if channel is not None:
+            cmd += f" CH{channel},"
+        if enable is True:
+            cmd += "ON"
+        else:
+            cmd += "OFF"
+        self.instr.write(cmd)
+
+    def get_output_enable(self, channel=None):
+        """Get enabled/disabled state of the output of a channel.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of the channel output.
+        """
+        cmd = ":OUTP"
+        if channel is not None:
+            cmd += f" CH{channel}"
+        enable = self.instr.query(cmd)
+        if enable == "ON":
+            enable = True
+        else:
+            enable = False
+        return enable
+
+    def set_output_timer():
+        pass
+
+    def get_output_timer():
+        pass
+
+    def set_output_timer_enable():
+        pass
+
+    def get_output_timer_enable():
+        pass
+
+    def set_output_track():
+        pass
+
+    def get_output_track():
+        pass
+
     # --- PRESet commands ---
 
     # --- RECAll commands ---
@@ -639,6 +1061,109 @@ class dp800:
     # --- RECorder commands ---
 
     # --- SOURce commands ---
+
+    def set_current(self, current, channel=None):
+        """Set the current of specified channel.
+
+        Parameters
+        ----------
+        current : float; 'MAX', 'MIN'; 'UP', 'DOWN'
+            Current level. 'UP' and 'DOWN' increment and decrement the current by step
+            setting.
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+        """
+        cmd = f":CURR {current}"
+        if channel is not None:
+            cmd = f":SOUR{channel}" + cmd
+        self.instr.write(cmd)
+
+    def get_current(self, channel=None):
+        """Get the current setting of a channel.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, currently selected channel is used.
+
+        Returns
+        -------
+        current : float
+            Current setting.
+        """
+        cmd = ":CURR?"
+        if channel is not None:
+            cmd = f":SOUR{channel}" + cmd
+        current = float(self.instr.query(cmd))
+
+        return current
+
+    def set_current_step():
+        pass
+
+    def get_current_step():
+        pass
+
+    def set_source_trigger(self, func, level, channel=None):
+        pass
+
+    def get_source_trigger(self, func, level, channel=None):
+        pass
+
+    def clear_ocp_circuit():
+        pass
+
+    def set_voltage(self, voltage, channel=None):
+        """Set the voltage of specified channel.
+
+        Parameters
+        ----------
+        voltage : float; 'MAX', 'MIN'; 'UP', 'DOWN'
+            Voltage level. 'UP' and 'DOWN' increment and decrement the voltage by step
+            setting.
+        channel : int, optional
+            Channel to select. If omitted, voltagely selected channel is used.
+        """
+        cmd = f":VOLT {voltage}"
+        if channel is not None:
+            cmd = f":SOUR{channel}" + cmd
+        self.instr.write(cmd)
+
+    def get_voltage(self, channel=None):
+        """Get the voltage setting of a channel.
+
+        Parameters
+        ----------
+        channel : int, optional
+            Channel to select. If omitted, voltagely selected channel is used.
+
+        Returns
+        -------
+        voltage : float
+            Voltage setting.
+        """
+        cmd = ":VOLT?"
+        if channel is not None:
+            cmd = f":SOUR{channel}" + cmd
+        voltage = float(self.instr.query(cmd))
+
+        return voltage
+
+    def set_voltage_step():
+        pass
+
+    def get_voltage_step():
+        pass
+
+    def clear_ovp_circuit():
+        pass
+
+    def set_voltage_range(self, range, channel=None):
+        """Set the voltage range of a channel.
+
+        Only applicable to single channel model.
+        """
+        pass
 
     # --- STATus commands ---
 
