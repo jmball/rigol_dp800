@@ -596,6 +596,34 @@ class dp800:
 
     # --- MEASure commands ---
 
+    def measure(self, func=None, channel=None):
+        """Read the voltage, current, and/or power of a channel.
+
+        Parameters
+        ----------
+        func : 'ALL', 'CURR', 'POWE', 'VOLT'; optional
+            Function to measure. 'ALL' measures all functions. If omitted, measures voltage.
+        channel : int, optional
+            Channel to read. If not given, the query will return the measurement for
+            the currently selected channel.
+
+        Returns
+        -------
+        values : float or list of float
+            Measurement value(s).
+        """
+        cmd = f":MEAS"
+        if func is not None:
+            cmd = cmd + f":{func}"
+        cmd = cmd + "?"
+        if channel is not None:
+            cmd = cmd + f" CH{channel}"
+        values = self.instr.query(cmd).split(",")
+        if len(values) == 1:
+            values = values[0]
+
+        return values
+
     # --- MEMory commands ---
 
     # --- MMEMory commands ---
