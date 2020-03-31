@@ -103,15 +103,15 @@ class dp800:
 
         # TODO: test what happens if channel is None on multi-channel instrument
         if channel is not None:
-            cmd = cmd + f"CH{channel},"
+            cmd += f"CH{channel},"
 
         # this function can be used to set voltage only
         if voltage is not None:
-            cmd = cmd + f"{voltage}"
+            cmd += f"{voltage}"
 
         # this function can't be used to set current only
         if {voltage is not None} & {current is not None}:
-            cmd = cmd + f",{current}"
+            cmd += f",{current}"
 
         self.instr.write(cmd)
 
@@ -138,16 +138,16 @@ class dp800:
         cmd = ":APPL?"
 
         if channel is not None:
-            cmd = cmd + f" CH{channel}"
+            cmd += f" CH{channel}"
 
         # channel cannot be omitted on its own. If channel is omitted, function also
         # has to be omitted.
         if (channel is not None) & (function is not None):
-            cmd = cmd + f"{,function}"
+            cmd += f"{,function}"
             return float(self.instr.query(cmd))
         elif (channel is None) & (function is not None):
             warning.warn("When querying using APPL? you may omit both `channel` and `function` parameters or `function` only. You cannot only omit `channel`.")
-            cmd = cmd + f"{,function}"
+            cmd += f"{,function}"
             return self.instr.query(cmd)
         else:
             ch, rating, voltage, current = self.instr.query(cmd).split(",")
@@ -170,7 +170,7 @@ class dp800:
         cmd = f":DELAY:CYCLE {finite}"
 
         if (finite == 'N') & (cycles is not None):
-            cmd = cmd + f",{cycles}"
+            cmd += f",{cycles}"
 
         self.instr.write(cmd)
 
@@ -524,7 +524,7 @@ class dp800:
         cmd = ":INST:COUP "
         if type(channels) is list:
             channels = channels.join(",")
-        cmd = cmd + channels
+        cmd += channels
         self.instr.write(cmd)
 
     def get_trigger_coupling_channels(self):
@@ -614,10 +614,10 @@ class dp800:
         """
         cmd = f":MEAS"
         if func is not None:
-            cmd = cmd + f":{func}"
-        cmd = cmd + "?"
+            cmd += f":{func}"
+        cmd += "?"
         if channel is not None:
-            cmd = cmd + f" CH{channel}"
+            cmd += f" CH{channel}"
         values = self.instr.query(cmd).split(",")
         if len(values) == 1:
             values = values[0]
