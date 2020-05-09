@@ -36,10 +36,7 @@ class dp800:
         self.check_errors = check_errors
 
     def connect(
-        self,
-        resource_name,
-        reset=True,
-        **resource_kwargs,
+        self, resource_name, reset=True, **resource_kwargs,
     ):
         """Conntect to the instrument and set remote mode.
 
@@ -132,7 +129,7 @@ class dp800:
         # channel cannot be omitted on its own. If channel is omitted, function also
         # has to be omitted.
         if (channel is not None) & (function is not None):
-            cmd += f"{,function}"
+            cmd += f",{function}"
             resp = float(self.instr.query(cmd))
 
             if self.check_errors is True:
@@ -140,8 +137,10 @@ class dp800:
 
             return resp
         elif (channel is None) & (function is not None):
-            warning.warn("When querying using APPL? you may omit both `channel` and `function` parameters or `function` only. You cannot only omit `channel`.")
-            cmd += f"{,function}"
+            warnings.warn(
+                "When querying using APPL? you may omit both `channel` and `function` parameters or `function` only. You cannot only omit `channel`."
+            )
+            cmd += f",{function}"
             resp = self.instr.query(cmd)
 
             if self.check_errors is True:
@@ -172,7 +171,7 @@ class dp800:
         """
         cmd = f":DELAY:CYCLE {finite}"
 
-        if (finite == 'N') & (cycles is not None):
+        if (finite == "N") & (cycles is not None):
             cmd += f",{cycles}"
 
         self.instr.write(cmd)
@@ -331,9 +330,7 @@ class dp800:
         if (value >= 0) & (value <= 255):
             self.instr.write(f"*ESE {value}")
         else:
-            raise ValueError(
-                f"Value: {value} is out of range. Must be in range 0-255."
-            )
+            raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
 
     def get_standard_event_enable_register(self):
         """Get the standard event enable register value.
@@ -453,7 +450,7 @@ class dp800:
         """
         cmd = f"*PSC?"
         value = int(self.instr.query(cmd))
-        
+
         if self.check_errors is True:
             self.get_error()
 
@@ -508,9 +505,7 @@ class dp800:
         if (value >= 0) & (value <= 255):
             self.instr.write(f"*SRE {value}")
         else:
-            raise ValueError(
-                f"Value: {value} is out of range. Must be in range 0-255."
-            )
+            raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
 
     def get_status_byte_enable_register(self):
         """Get the status byte enable register value.
@@ -777,7 +772,7 @@ class dp800:
         if channel is not None:
             cmd += f" CH{channel}"
         ocp_alarm = self.instr.query(cmd)
-        if ocp_alarm == 'YES':
+        if ocp_alarm == "YES":
             ocp_alarm = True
         else:
             ocp_alarm = False
@@ -848,7 +843,7 @@ class dp800:
         if channel is not None:
             cmd += f" CH{channel}"
         enable = self.instr.query(cmd)
-        if enable == 'ON':
+        if enable == "ON":
             enable = True
         else:
             enable = False
@@ -896,7 +891,7 @@ class dp800:
         value : float
             Overcurrent protection value.
         """
-        #TODO: Manual suggests this function can also take MIN and MAX arguments. Test
+        # TODO: Manual suggests this function can also take MIN and MAX arguments. Test
         # what this does.
         cmd = ":OUTP:OCP:VAL?"
         if channel is not None:
@@ -938,7 +933,7 @@ class dp800:
         if channel is not None:
             cmd += f" CH{channel}"
         ovp_alarm = self.instr.query(cmd)
-        if ovp_alarm == 'YES':
+        if ovp_alarm == "YES":
             ovp_alarm = True
         else:
             ovp_alarm = False
@@ -1057,7 +1052,7 @@ class dp800:
         value : float
             Overvoltage protection value.
         """
-        #TODO: Manual suggests this function can also take MIN and MAX arguments. Test
+        # TODO: Manual suggests this function can also take MIN and MAX arguments. Test
         # what this does.
         cmd = ":OUTP:OVP:VAL?"
         if channel is not None:
@@ -1118,7 +1113,7 @@ class dp800:
         if channel is not None:
             cmd += f" CH{channel}"
         enable = self.instr.query(cmd)
-        if enable == 'ON':
+        if enable == "ON":
             enable = True
         else:
             # On models where the function is not supported the instrument returns
