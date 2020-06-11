@@ -15,4 +15,4 @@ if __version__ is None:
         __version__ = "0.0.0"
         pass
 
-from .dp800 import *
+from .virtual_dp800 import *
