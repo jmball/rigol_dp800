@@ -35,9 +35,7 @@ class dp800:
         """
         self.check_errors = check_errors
 
-    def connect(
-        self, resource_name, reset=True, **resource_kwargs,
-    ):
+    def connect(self, resource_name, reset=True, **resource_kwargs):
         """Conntect to the instrument and set remote mode.
 
         Parameters
@@ -1174,23 +1172,23 @@ class dp800:
 
         return enable
 
-    def set_output_timer():
-        pass
+    def set_output_timer(self):
+        warnings.warn("Not implemented.")
 
-    def get_output_timer():
-        pass
+    def get_output_timer(self):
+        warnings.warn("Not implemented.")
 
-    def set_output_timer_enable():
-        pass
+    def set_output_timer_enable(self):
+        warnings.warn("Not implemented.")
 
-    def get_output_timer_enable():
-        pass
+    def get_output_timer_enable(self):
+        warnings.warn("Not implemented.")
 
-    def set_output_track():
-        pass
+    def set_output_track(self):
+        warnings.warn("Not implemented.")
 
-    def get_output_track():
-        pass
+    def get_output_track(self):
+        warnings.warn("Not implemented.")
 
     # --- PRESet commands ---
 
@@ -1242,20 +1240,20 @@ class dp800:
 
         return current
 
-    def set_current_step():
-        pass
+    def set_current_step(self):
+        warnings.warn("Not implemented.")
 
-    def get_current_step():
-        pass
+    def get_current_step(self):
+        warnings.warn("Not implemented.")
 
     def set_source_trigger(self, func, level, channel=None):
-        pass
+        warnings.warn("Not implemented.")
 
     def get_source_trigger(self, func, level, channel=None):
-        pass
+        warnings.warn("Not implemented.")
 
-    def clear_ocp_circuit():
-        pass
+    def clear_ocp_circuit(self):
+        warnings.warn("Not implemented.")
 
     def set_voltage(self, voltage, channel=None):
         """Set the voltage of specified channel.
@@ -1299,14 +1297,14 @@ class dp800:
 
         return voltage
 
-    def set_voltage_step():
-        pass
+    def set_voltage_step(self):
+        warnings.warn("Not implemented.")
 
-    def get_voltage_step():
-        pass
+    def get_voltage_step(self):
+        warnings.warn("Not implemented.")
 
-    def clear_ovp_circuit():
-        pass
+    def clear_ovp_circuit(self):
+        warnings.warn("Not implemented.")
 
     def set_voltage_range(self, range, channel=None):
         """Set the voltage range of a channel.
@@ -1321,37 +1319,37 @@ class dp800:
 
     # --- SYSTem commands ---
 
-    def set_beeper():
-        pass
+    def set_beeper(self):
+        warnings.warn("Not implemented.")
 
-    def get_beeper():
-        pass
+    def get_beeper(self):
+        warnings.warn("Not implemented.")
 
-    def set_gpib_config():
-        pass
+    def set_gpib_config(self):
+        warnings.warn("Not implemented.")
 
-    def get_gpib_config():
-        pass
+    def get_gpib_config(self):
+        warnings.warn("Not implemented.")
 
-    def set_lan_config():
-        pass
+    def set_lan_config(self):
+        warnings.warn("Not implemented.")
 
-    def get_lan_config():
-        pass
+    def get_lan_config(self):
+        warnings.warn("Not implemented.")
 
-    def set_rs232_config():
-        pass
+    def set_rs232_config(self):
+        warnings.warn("Not implemented.")
 
-    def get_rs232_config():
-        pass
+    def get_rs232_config(self):
+        warnings.warn("Not implemented.")
 
-    def set_contrast():
-        pass
+    def set_contrast(self):
+        warnings.warn("Not implemented.")
 
-    def get_contrast():
-        pass
+    def get_contrast(self):
+        warnings.warn("Not implemented.")
 
-    def get_error():
+    def get_error(self):
         """Query and clear error messages in the error queue.
 
         Returns
@@ -1364,11 +1362,11 @@ class dp800:
         if code != 0:
             warnings.warn(f"Instrument error: {code}, {msg}")
 
-    def set_key_keylock():
-        pass
+    def set_key_keylock(self):
+        warnings.warn("Not implemented.")
 
-    def get_key_keylock():
-        pass
+    def get_key_keylock(self):
+        warnings.warn("Not implemented.")
 
     def set_keylock_enable(self, enable):
         """Enable/disable front panel keys in remote mode.
@@ -1408,11 +1406,11 @@ class dp800:
 
         return enable
 
-    def set_language():
-        pass
+    def set_language(self):
+        warnings.warn("Not implemented.")
 
-    def get_language():
-        pass
+    def get_language(self):
+        warnings.warn("Not implemented.")
 
     def set_local(self):
         """Return instrument to local mode."""
@@ -1421,29 +1419,29 @@ class dp800:
         if self.check_errors is True:
             self.get_error()
 
-    def set_lock():
-        pass
+    def set_lock(self):
+        warnings.warn("Not implemented.")
 
-    def get_lock():
-        pass
+    def get_lock(self):
+        warnings.warn("Not implemented.")
 
-    def set_on_off_sync():
-        pass
+    def set_on_off_sync(self):
+        warnings.warn("Not implemented.")
 
-    def get_on_off_sync():
-        pass
+    def get_on_off_sync(self):
+        warnings.warn("Not implemented.")
 
-    def set_otp_enable():
-        pass
+    def set_otp_enable(self):
+        warnings.warn("Not implemented.")
 
-    def get_otp_enable():
-        pass
+    def get_otp_enable(self):
+        warnings.warn("Not implemented.")
 
-    def set_power_on_config_mode():
-        pass
+    def set_power_on_config_mode(self):
+        warnings.warn("Not implemented.")
 
-    def get_power_on_config_mode():
-        pass
+    def get_power_on_config_mode(self):
+        warnings.warn("Not implemented.")
 
     def set_remote(self):
         """Set the instrument to remote mode."""
@@ -1452,14 +1450,14 @@ class dp800:
         if self.check_errors is True:
             self.get_error()
 
-    def set_brightness():
-        pass
+    def set_brightness(self):
+        warnings.warn("Not implemented.")
 
-    def get_brightness():
-        pass
+    def get_brightness(self):
+        warnings.warn("Not implemented.")
 
-    def set_screen_saver_enable():
-        pass
+    def set_screen_saver_enable(self):
+        warnings.warn("Not implemented.")
 
     def get_temperature_test_result(self):
         """Query the self-test result of the temperature.
@@ -1476,14 +1474,14 @@ class dp800:
 
         return temperature
 
-    def set_track_mode():
-        pass
+    def set_track_mode(self):
+        warnings.warn("Not implemented.")
 
-    def get_track_mode():
-        pass
+    def get_track_mode(self):
+        warnings.warn("Not implemented.")
 
-    def get_scpi_version():
-        pass
+    def get_scpi_version(self):
+        warnings.warn("Not implemented.")
 
     # --- TIMEr commands ---
 
