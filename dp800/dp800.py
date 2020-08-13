@@ -50,6 +50,8 @@ class dp800:
 
     def disconnect(self):
         """Disconnect the instrument after returning to local mode."""
+        for channel in [1, 2, 3]:
+            self.set_output_enable(False, channel)
         self.set_local()
         self.instr.close()
 
