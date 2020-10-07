@@ -6,7 +6,7 @@ https://www.rigolna.com/products/dc-power-loads/dp800/.
 import logging
 import warnings
 
-import visa
+import pyvisa
 
 
 # Instrument errors raise warnings. Make sure logger captures them.
@@ -14,7 +14,7 @@ logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-rm = visa.ResourceManager()
+rm = pyvisa.ResourceManager()
 
 
 class dp800:
