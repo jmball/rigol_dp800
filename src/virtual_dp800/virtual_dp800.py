@@ -24,7 +24,7 @@ class dp800:
         pass
 
     def connect(
-        self, resource_name=None, reset=True, **resource_kwargs,
+        self, resource_name, reset=True, **resource_kwargs,
     ):
         """Conntect to the instrument and set remote mode.
 
