@@ -10,18 +10,19 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. Most setters
   are no-ops and getters return fixed placeholders; it is not a stateful simulator.
 - Both packages export a lowercase `dp800` class through their `__init__.py` and
-  obtain `__version__` through `pkg_resources`, with a `0.0.0` fallback.
-- `setup.cfg`: distribution metadata, package discovery, Python support, and
-  runtime dependencies (`pyvisa` and `pyvisa-py`).
-- `pyproject.toml`: PEP 517 setuptools build backend. `setup.py` is a thin shim.
-- `README.md`: currently only a project title. `LICENSE`: GPLv3 license text.
+  obtain `__version__` through `importlib.metadata` for the `rigol_dp800`
+  distribution, with a `0.0.0` fallback.
+- `pyproject.toml`: project metadata, Python support, dependencies (`pyvisa` and
+  `pyvisa-py`), package discovery, and the PEP 517 setuptools build backend.
+  There is no `setup.py` or `setup.cfg`.
+- `README.md`: installation and build instructions. `LICENSE`: GPLv3 license text.
 
 There is currently no test suite, CI configuration, or configured formatter,
 linter, or type checker.
 
 ## Making changes
 
-- Preserve Python 3.6 compatibility declared in `setup.cfg` unless the task
+- Preserve Python 3.9 compatibility declared in `pyproject.toml` unless the task
   explicitly changes supported versions. Do not introduce newer syntax or APIs
   without updating the compatibility contract.
 - Follow the existing four-space indentation, snake_case methods, SCPI family
