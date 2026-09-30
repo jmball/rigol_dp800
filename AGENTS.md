@@ -15,9 +15,10 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `pyproject.toml`: project metadata, Python support, dependencies (`pyvisa` and
   `pyvisa-py`), package discovery, and the PEP 517 setuptools build backend.
   There is no `setup.py` or `setup.cfg`.
-- `README.md`: installation, build, and licensing instructions. The project is
+- `README.md`: installation and build instructions. The project is
   licensed under `GPL-3.0-or-later`; `LICENSE` contains the full GPLv3 text.
-  Keep metadata, the README grant, and source SPDX identifiers consistent.
+  Keep metadata and source SPDX identifiers consistent. Leave license details and
+  Python compatibility requirements out of the README.
 
 There is currently no test suite, CI configuration, or configured formatter,
 linter, or type checker.
