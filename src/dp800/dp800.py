@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Rigol DP800 series power supply control library.
 
 The full instrument manual, including the programming guide, can be found at

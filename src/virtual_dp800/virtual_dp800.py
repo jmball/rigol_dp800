@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Virtual Rigol DP800 series power supply control library."""
 
 import logging

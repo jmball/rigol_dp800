@@ -15,14 +15,16 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `pyproject.toml`: project metadata, Python support, dependencies (`pyvisa` and
   `pyvisa-py`), package discovery, and the PEP 517 setuptools build backend.
   There is no `setup.py` or `setup.cfg`.
-- `README.md`: installation and build instructions. `LICENSE`: GPLv3 license text.
+- `README.md`: installation, build, and licensing instructions. The project is
+  licensed under `GPL-3.0-or-later`; `LICENSE` contains the full GPLv3 text.
+  Keep metadata, the README grant, and source SPDX identifiers consistent.
 
 There is currently no test suite, CI configuration, or configured formatter,
 linter, or type checker.
 
 ## Making changes
 
-- Preserve Python 3.9 compatibility declared in `pyproject.toml` unless the task
+- Preserve Python 3.10 compatibility declared in `pyproject.toml` unless the task
   explicitly changes supported versions. Do not introduce newer syntax or APIs
   without updating the compatibility contract.
 - Follow the existing four-space indentation, snake_case methods, SCPI family

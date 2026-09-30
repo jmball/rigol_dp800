@@ -1,7 +1,7 @@
 # rigol_dp800
 
 Python library for controlling Rigol DP800 series power supplies through PyVISA.
-Requires Python 3.9 or newer.
+Requires Python 3.10 or newer.
 
 ## Installation
 
@@ -27,3 +27,9 @@ hardware access may require additional drivers or backend configuration.
 This creates a source distribution and wheel in `dist/`. Package metadata,
 dependencies, package discovery, and the build backend are defined in
 `pyproject.toml`.
+
+## License
+
+You may redistribute and modify rigol_dp800 under the GNU General Public License,
+version 3 or, at your option, any later version (`GPL-3.0-or-later`). See
+[LICENSE](LICENSE) for the full terms, including the warranty disclaimer.
