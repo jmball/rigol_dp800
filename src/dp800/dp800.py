@@ -35,20 +35,19 @@ logger.addHandler(logging.NullHandler())
 class dp800:
     """Rigol DP800 series power supply instrument.
 
-    Use the `connect()` method to open a connection to the instrument and instantiate
-    the VISA resource attribute `instr` for an dp800 instance. This attribute can be
-    used to access all of the PyVISA attributes and methods for the resource.
+    Use connect() to initialize a connection and disconnect() to release it.
+    The VISA resource is held internally as _instr.
     """
 
     def __init__(self) -> None:
-        self.instr: MessageBasedResource | None = None
+        self._instr: MessageBasedResource | None = None
         self._resource_manager: pyvisa.ResourceManager | None = None
 
     def _get_instr(self) -> MessageBasedResource:
         """Return the connected resource or raise before attempting I/O."""
-        if self.instr is None:
+        if self._instr is None:
             raise RuntimeError("Instrument is not connected.")
-        return self.instr
+        return self._instr
 
     def connect(
         self,
@@ -91,13 +90,13 @@ class dp800:
 
         Notes
         -----
-        Remote mode and the identity query must succeed before instr is assigned.
+        Remote mode and the identity query must succeed before _instr is assigned.
         On failure the resource is closed and the instance stays disconnected.
         No reset, voltage/current setting, or output-enable command is sent.
         PyVISA can reuse a manager for the same backend. This driver closes only
         its instrument resource and releases its reference to the manager.
         """
-        if self.instr is not None:
+        if self._instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
         for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
             if key in resource_kwargs and resource_kwargs[key] != required:
@@ -143,18 +142,18 @@ class dp800:
                     )
             raise
         self._resource_manager = manager
-        self.instr = resource
+        self._instr = resource
 
     def disconnect(self) -> None:
         """Disable outputs, return to local mode, and release the connection.
 
         Already disconnected instances are a no-op. All three output-disable
         commands and local mode are attempted even if one fails. The resource
-        is then closed, and instr is cleared even if cleanup fails. The retained
+        is then closed, and _instr is cleared even if cleanup fails. The retained
         manager reference is released without closing it. The first error is
         re-raised after cleanup; subsequent errors are logged.
         """
-        resource = self.instr
+        resource = self._instr
         if resource is None:
             return
         error: Exception | None = None
@@ -173,7 +172,7 @@ class dp800:
                     else:
                         logger.warning("Additional disconnect error.", exc_info=True)
         finally:
-            self.instr = None
+            self._instr = None
             self._resource_manager = None
             try:
                 resource.close()

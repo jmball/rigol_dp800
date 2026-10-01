@@ -6,7 +6,7 @@ This is `rigol_dp800`, a Python library for controlling Rigol DP800 series power
 supplies through PyVISA. The project uses a `src/` layout and setuptools.
 
 - `src/dp800/dp800.py`: hardware driver, with methods grouped by SCPI command
-  family. Commands go through `self.instr.write()` and `self.instr.query()`.
+  family. Commands go through `self._instr.write()` and `self._instr.query()`.
 - `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. Most setters
   are no-ops and getters return fixed placeholders; it is not a stateful simulator.
 - Both packages export a lowercase `dp800` class through their `__init__.py` and
@@ -75,7 +75,7 @@ Report which checks ran and any hardware behavior that remains unverified.
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-switches to remote mode, and queries identity before publishing `self.instr`.
+switches to remote mode, and queries identity before publishing `self._instr`.
 Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.
 Reset is an explicit caller operation.
@@ -84,7 +84,7 @@ Initialization failures close the resource. Managers are retained for the
 connection's lifetime and released without explicitly closing them; injected
 managers stay caller-owned, and default managers are obtained lazily from PyVISA.
 `disconnect()` attempts to disable outputs on channels 1, 2, and 3 and return to
-local mode, then closes the resource and clears `self.instr` even on failure.
+local mode, then closes the resource and clears `self._instr` even on failure.
 Repeated disconnect calls are harmless. Account for these side effects
 when designing tests. Use mocks for routine validation; exercise real hardware
 only within the user's authorized task and device configuration.

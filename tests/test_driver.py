@@ -87,7 +87,7 @@ class ConnectionTests(unittest.TestCase):
 
     def test_configuration_precedes_io_and_publication_without_reset(self):
         def check_initialization():
-            self.assertIsNone(self.driver.instr)
+            self.assertIsNone(self.driver._instr)
             self.assertEqual(self.resource.encoding, "ascii")
             self.assertEqual(self.resource.read_termination, "\n")
             self.assertEqual(self.resource.write_termination, "\n")
@@ -100,7 +100,7 @@ class ConnectionTests(unittest.TestCase):
         )
         self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
         self.assertEqual(self.resource.query_delay, 0.1)
-        self.assertIs(self.driver.instr, self.resource)
+        self.assertIs(self.driver._instr, self.resource)
         self.assertIs(self.driver._resource_manager, self.manager)
 
     def test_matching_protocol_values_are_accepted(self):
@@ -110,7 +110,7 @@ class ConnectionTests(unittest.TestCase):
                 encoding="ascii", read_termination="\n", write_termination="\n"
             )
         self.assertEqual(emitted, [])
-        self.assertIs(self.driver.instr, self.resource)
+        self.assertIs(self.driver._instr, self.resource)
 
     def test_protocol_conflicts_warn_and_connect_with_driver_values(self):
         for kwargs in (
@@ -127,7 +127,7 @@ class ConnectionTests(unittest.TestCase):
                 self.manager.open_resource.assert_called_once_with(
                     "TCPIP::example::INSTR"
                 )
-                self.assertIs(self.driver.instr, self.resource)
+                self.assertIs(self.driver._instr, self.resource)
                 self.assertEqual(self.resource.encoding, "ascii")
                 self.assertEqual(self.resource.read_termination, "\n")
                 self.assertEqual(self.resource.write_termination, "\n")
@@ -139,7 +139,7 @@ class ConnectionTests(unittest.TestCase):
             self.connect()
         self.manager.open_resource.assert_called_once()
         self.assertEqual(self.resource.closed, 0)
-        self.assertIs(self.driver.instr, self.resource)
+        self.assertIs(self.driver._instr, self.resource)
 
     def test_disconnect_is_idempotent_and_caller_manager_remains_open(self):
         self.driver.disconnect()
@@ -156,7 +156,7 @@ class ConnectionTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self.resource.closed, 1)
-        self.assertIsNone(self.driver.instr)
+        self.assertIsNone(self.driver._instr)
         self.assertIsNone(self.driver._resource_manager)
         self.manager.close.assert_not_called()
 
@@ -166,7 +166,7 @@ class ConnectionTests(unittest.TestCase):
         replacement = FakeResource()
         self.manager.open_resource.return_value = replacement
         self.connect()
-        self.assertIs(self.driver.instr, replacement)
+        self.assertIs(self.driver._instr, replacement)
         self.assertEqual(self.manager.open_resource.call_count, 2)
 
     def test_default_manager_is_obtained_lazily_and_not_closed(self):
@@ -194,7 +194,7 @@ class ConnectionTests(unittest.TestCase):
                     else:
                         self.driver.connect("TCPIP::example::INSTR")
                 self.assertIs(raised.exception, error)
-                self.assertIsNone(self.driver.instr)
+                self.assertIsNone(self.driver._instr)
                 self.assertEqual(self.resource.closed, 0)
                 self.manager.close.assert_not_called()
 
@@ -214,13 +214,13 @@ class ConnectionTests(unittest.TestCase):
                 with self.assertRaises(type(error)):
                     self.connect(timeout=500)
                 self.assertEqual(self.resource.closed, 1)
-                self.assertIsNone(self.driver.instr)
+                self.assertIsNone(self.driver._instr)
                 self.assertIsNone(self.driver._resource_manager)
                 self.manager.close.assert_not_called()
                 replacement = FakeResource()
                 self.manager.open_resource.return_value = replacement
                 self.connect()
-                self.assertIs(self.driver.instr, replacement)
+                self.assertIs(self.driver._instr, replacement)
 
     def test_failed_initialization_preserves_error_when_resource_close_fails(self):
         error = ValueError("Identity failed")
@@ -240,7 +240,7 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.connect()
         resource.close.assert_called_once_with()
-        self.assertIsNone(self.driver.instr)
+        self.assertIsNone(self.driver._instr)
 
     def test_unknown_private_and_method_attributes_are_rejected_with_cleanup(self):
         for kwargs in (
@@ -253,7 +253,7 @@ class ConnectionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.connect(**kwargs)
                 self.assertEqual(self.resource.closed, 1)
-                self.assertIsNone(self.driver.instr)
+                self.assertIsNone(self.driver._instr)
 
     def test_disconnect_attempts_all_commands_and_closes_after_io_failure(self):
         self.connect()
@@ -268,7 +268,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertIn(":OUTP  CH3,OFF", self.resource.commands)
         self.assertIn(":SYST:LOC", self.resource.commands)
         self.assertEqual(self.resource.closed, 1)
-        self.assertIsNone(self.driver.instr)
+        self.assertIsNone(self.driver._instr)
         self.manager.close.assert_not_called()
         self.driver.disconnect()
 
@@ -279,7 +279,7 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaises(OSError):
             self.driver.disconnect()
         self.manager.close.assert_not_called()
-        self.assertIsNone(self.driver.instr)
+        self.assertIsNone(self.driver._instr)
         self.assertIsNone(self.driver._resource_manager)
 
     def test_disconnected_io_raises_clear_error(self):

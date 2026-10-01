@@ -115,7 +115,7 @@ class dp800:
         # if {voltage is not None} & {current is not None}:
         #     cmd += f",{current}"
 
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -154,7 +154,7 @@ class dp800:
         # # has to be omitted.
         # if (channel is not None) & (function is not None):
         #     cmd += f",{function}"
-        #     resp = float(self.instr.query(cmd))
+        #     resp = float(self._instr.query(cmd))
 
         #     if self.check_errors is True:
         #         self.get_error()
@@ -165,14 +165,14 @@ class dp800:
         #         "When querying using APPL? you may omit both `channel` and `function` parameters or `function` only. You cannot only omit `channel`."
         #     )
         #     cmd += f",{function}"
-        #     resp = self.instr.query(cmd)
+        #     resp = self._instr.query(cmd)
 
         #     if self.check_errors is True:
         #         self.get_error()
 
         #     return resp
         # else:
-        #     ch, rating, voltage, current = self.instr.query(cmd).split(",")
+        #     ch, rating, voltage, current = self._instr.query(cmd).split(",")
 
         #     if self.check_errors is True:
         #         self.get_error()
@@ -201,7 +201,7 @@ class dp800:
         # if (finite == "N") & (cycles is not None):
         #     cmd += f",{cycles}"
 
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -217,7 +217,7 @@ class dp800:
             'N' and and integer representing the number of cycles.
         """
         # cmd = ":DELAY:CYCLE?"
-        # resp = self.instr.query(cmd).split(",")
+        # resp = self._instr.query(cmd).split(",")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -238,7 +238,7 @@ class dp800:
             'OFF' switches off the output, and 'LAST' uses the last state.
         """
         # cmd = f":DELAY:ENDS {endstate}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -254,7 +254,7 @@ class dp800:
             'OFF' switches off the output, and 'LAST' uses the last state.
         """
         # cmd = ":DELAY:ENDS?"
-        # endstate = self.instr.query(cmd)
+        # endstate = self._instr.query(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -272,7 +272,7 @@ class dp800:
             turns on or off. Must be in range 1-2048.
         """
         # cmd = f":DELAY:GROUP {groups}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -288,7 +288,7 @@ class dp800:
             turns on or off.
         """
         # cmd = f":DELAY:GROUP?"
-        # groups = int(self.instr.query(cmd))
+        # groups = int(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -345,7 +345,7 @@ class dp800:
 
     def clear_event_registers(self) -> None:
         """Clear all event registers."""
-        # self.instr.write("*CLS")
+        # self._instr.write("*CLS")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -362,7 +362,7 @@ class dp800:
             require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
         """
         # if (value >= 0) & (value <= 255):
-        #     self.instr.write(f"*ESE {value}")
+        #     self._instr.write(f"*ESE {value}")
         # else:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
@@ -375,7 +375,7 @@ class dp800:
         value : int
             Register value.
         """
-        # value = int(self.instr.query("*ESE?"))
+        # value = int(self._instr.query("*ESE?"))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -391,7 +391,7 @@ class dp800:
         value : int
             Register value.
         """
-        # value = int(self.instr.query("*ESR?"))
+        # value = int(self._instr.query("*ESR?"))
 
         # return value
         return 0
@@ -405,7 +405,7 @@ class dp800:
             List of identification strings consisting of manufacturer, model, serial
             number, and board version number in order.
         """
-        # idn = self.instr.query("*IDN?").split(",")
+        # idn = self._instr.query("*IDN?").split(",")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -419,7 +419,7 @@ class dp800:
         Sets bit 0 of the standard event register after completing the current
         operation.
         """
-        # self.instr.write("*OPC")
+        # self._instr.write("*OPC")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -436,7 +436,7 @@ class dp800:
                 * 0 : incomplete
                 * 1 : complete
         """
-        # opc = int(self.instr.query("*OPC?"))
+        # opc = int(self._instr.query("*OPC?"))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -453,7 +453,7 @@ class dp800:
             List of options. If an option is installed its name is returned, otherwise
             the query returns a 0.
         """
-        # options = self.instr.query("*OPT")
+        # options = self._instr.query("*OPT")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -473,7 +473,7 @@ class dp800:
                 * 1 : Set, all status and enable registers are cleared on power up.
         """
         # cmd = f"*PSC {value}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -491,7 +491,7 @@ class dp800:
                 * 1 : Set, all status and enable registers are cleared on power up.
         """
         # cmd = f"*PSC?"
-        # value = int(self.instr.query(cmd))
+        # value = int(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -508,7 +508,7 @@ class dp800:
             Buffer number, 1 =< number =< 9.
         """
         # cmd = f"*RCL {number}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -517,7 +517,7 @@ class dp800:
     def reset(self) -> None:
         """Reset the instrument to the factory default configuration."""
         # cmd = f"*RST"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -532,7 +532,7 @@ class dp800:
             Buffer number, 1 =< number =< 9.
         """
         # cmd = f"*SAV {number}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -549,7 +549,7 @@ class dp800:
             require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
         """
         # if (value >= 0) & (value <= 255):
-        #     self.instr.write(f"*SRE {value}")
+        #     self._instr.write(f"*SRE {value}")
         # else:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
@@ -562,7 +562,7 @@ class dp800:
         value : int
             Register value.
         """
-        # value = int(self.instr.query("*SRE?"))
+        # value = int(self._instr.query("*SRE?"))
 
         # return value
         return 0
@@ -577,7 +577,7 @@ class dp800:
         value : int
             Register value.
         """
-        # value = int(self.instr.query("*STB?"))
+        # value = int(self._instr.query("*STB?"))
 
         # return value
         return 0
@@ -587,7 +587,7 @@ class dp800:
 
         Only available when bus (software) trigger is selected.
         """
-        # self.instr.write("*TRG")
+        # self._instr.write("*TRG")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -601,7 +601,7 @@ class dp800:
         result : list
             List of test results for the top board, bottom board, and fan.
         """
-        # result = self.instr.query("*TST?").split(",")
+        # result = self._instr.query("*TST?").split(",")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -611,7 +611,7 @@ class dp800:
 
     def wait(self) -> None:
         """Wait until processing all pending commands is complete."""
-        # self.instr.write("*WAI")
+        # self._instr.write("*WAI")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -622,7 +622,7 @@ class dp800:
     def init_trigger(self) -> None:
         """Initialise the trigger system."""
         # cmd = ":INIT"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -644,7 +644,7 @@ class dp800:
         # if type(channels) is list:
         #     channels = channels.join(",")
         # cmd += channels
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -661,7 +661,7 @@ class dp800:
             If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
             where each element is a channel name and rating separated by a `:`.
         """
-        # channels = self.instr.query(":INST:COUP?").split(",")
+        # channels = self._instr.query(":INST:COUP?").split(",")
         # if len(channels) == 1:
         #     channels = channels[0]
 
@@ -686,7 +686,7 @@ class dp800:
         channel : int
             Channel number.
         """
-        # self.instr.write(f":INST CH{channel}")
+        # self._instr.write(f":INST CH{channel}")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -707,7 +707,7 @@ class dp800:
         channel : int
             Channel number.
         """
-        # channel = int(self.instr.query(":INST:NSEL?"))
+        # channel = int(self._instr.query(":INST:NSEL?"))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -727,7 +727,7 @@ class dp800:
         options_licence : str
             Unique 28-byte ASCII string only including English letters and numbers.
         """
-        # self.instr.write(f":LIC:SET {options_licence}")
+        # self._instr.write(f":LIC:SET {options_licence}")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -761,7 +761,7 @@ class dp800:
         # cmd += "?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # values = self.instr.query(cmd).split(",")
+        # values = self._instr.query(cmd).split(",")
         # if len(values) == 1:
         #     values = values[0]
 
@@ -800,7 +800,7 @@ class dp800:
         # cmd = ":OUTP:MODE?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # mode = self.instr.query(cmd)
+        # mode = self._instr.query(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -835,7 +835,7 @@ class dp800:
         # cmd = ":OUTP:OCP:ALAR?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # ocp_alarm = self.instr.query(cmd)
+        # ocp_alarm = self._instr.query(cmd)
         # if ocp_alarm == "YES":
         #     ocp_alarm = True
         # else:
@@ -858,7 +858,7 @@ class dp800:
         # cmd = ":OUTP:OCP:CLEAR"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -884,7 +884,7 @@ class dp800:
         #     cmd += "ON"
         # else:
         #     cmd += "OFF"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -909,7 +909,7 @@ class dp800:
         # cmd = ":OUTP:OCP?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # enable = self.instr.query(cmd)
+        # enable = self._instr.query(cmd)
         # if enable == "ON":
         #     enable = True
         # else:
@@ -940,7 +940,7 @@ class dp800:
         # if channel is not None:
         #     cmd += f"CH{channel},"
         # cmd += f"{value}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -969,7 +969,7 @@ class dp800:
         #     cmd += f" CH{channel}"
 
         # # TODO: test if float is returned when set to MIN or MAX
-        # value = float(self.instr.query(cmd))
+        # value = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1004,7 +1004,7 @@ class dp800:
         # cmd = ":OUTP:OVP:ALAR?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # ovp_alarm = self.instr.query(cmd)
+        # ovp_alarm = self._instr.query(cmd)
         # if ovp_alarm == "YES":
         #     ovp_alarm = True
         # else:
@@ -1027,7 +1027,7 @@ class dp800:
         # cmd = ":OUTP:OVP:CLEAR"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1053,7 +1053,7 @@ class dp800:
         #     cmd += "ON"
         # else:
         #     cmd += "OFF"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1078,7 +1078,7 @@ class dp800:
         # cmd = ":OUTP:OVP?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # enable = self.instr.query(cmd)
+        # enable = self._instr.query(cmd)
         # if enable == "ON":
         #     enable = True
         # else:
@@ -1109,7 +1109,7 @@ class dp800:
         # if channel is not None:
         #     cmd += f"CH{channel},"
         # cmd += f"{value}"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1138,7 +1138,7 @@ class dp800:
         #     cmd += f" CH{channel}"
 
         # # TODO: test if float is returned when set to MIN or MAX
-        # value = float(self.instr.query(cmd))
+        # value = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1169,7 +1169,7 @@ class dp800:
         #     cmd += "ON"
         # else:
         #     cmd += "OFF"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1193,7 +1193,7 @@ class dp800:
         # cmd = ":OUTP:SENS?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # enable = self.instr.query(cmd)
+        # enable = self._instr.query(cmd)
         # if enable == "ON":
         #     enable = True
         # else:
@@ -1224,7 +1224,7 @@ class dp800:
         #     cmd += "ON"
         # else:
         #     cmd += "OFF"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1246,7 +1246,7 @@ class dp800:
         # cmd = ":OUTP"
         # if channel is not None:
         #     cmd += f" CH{channel}"
-        # enable = self.instr.query(cmd)
+        # enable = self._instr.query(cmd)
         # if enable == "ON":
         #     enable = True
         # else:
@@ -1302,7 +1302,7 @@ class dp800:
         # cmd = f":CURR {current}"
         # if channel is not None:
         #     cmd = f":SOUR{channel}" + cmd
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1324,7 +1324,7 @@ class dp800:
         # cmd = ":CURR?"
         # if channel is not None:
         #     cmd = f":SOUR{channel}" + cmd
-        # current = float(self.instr.query(cmd))
+        # current = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1369,7 +1369,7 @@ class dp800:
         # cmd = f":VOLT {voltage}"
         # if channel is not None:
         #     cmd = f":SOUR{channel}" + cmd
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1391,7 +1391,7 @@ class dp800:
         # cmd = ":VOLT?"
         # if channel is not None:
         #     cmd = f":SOUR{channel}" + cmd
-        # voltage = float(self.instr.query(cmd))
+        # voltage = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1459,7 +1459,7 @@ class dp800:
         error : list
             Error code and error message.
         """
-        # code, msg = self.instr.query(":SYST:ERR").split(",")
+        # code, msg = self._instr.query(":SYST:ERR").split(",")
         # code = int(code)
         # if code != 0:
         #     warnings.warn(f"Instrument error: {code}, {msg}")
@@ -1484,7 +1484,7 @@ class dp800:
         #     cmd += "ON"
         # else:
         #     cmd += "OFF"
-        # self.instr.write(cmd)
+        # self._instr.write(cmd)
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1499,7 +1499,7 @@ class dp800:
             Enabled/disabled state of the front panel lock
         """
         # cmd = ":SYST:KLOC:STAT?"
-        # enable = self.instr.query(cmd)
+        # enable = self._instr.query(cmd)
         # if enable == "ON":
         #     enable = True
         # else:
@@ -1519,7 +1519,7 @@ class dp800:
 
     def set_local(self) -> None:
         """Return instrument to local mode."""
-        # self.instr.write(":SYST:LOC")
+        # self._instr.write(":SYST:LOC")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1551,7 +1551,7 @@ class dp800:
 
     def set_remote(self) -> None:
         """Set the instrument to remote mode."""
-        # self.instr.write(":SYST:REM")
+        # self._instr.write(":SYST:REM")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -1574,7 +1574,7 @@ class dp800:
         temperature : float
             Temperature in degrees celcius.
         """
-        # temperature = float(self.instr.query(":SYST:SELF:TEST:TEMP?"))
+        # temperature = float(self._instr.query(":SYST:SELF:TEST:TEMP?"))
 
         # if self.check_errors is True:
         #     self.get_error()
