@@ -74,8 +74,9 @@ class dp800:
             VISA opening options (access_mode, open_timeout, resource_pyclass)
             and resource attributes such as timeout. Attributes are applied
             after opening so failures can close the resource. This driver uses
-            ASCII encoding and LF ("\\n") read/write termination; explicit
-            values for these attributes must match. Other attributes use VISA
+            ASCII encoding and LF ("\\n") read/write termination. Conflicting
+            values for these driver-owned attributes emit a warning and are
+            ignored in favor of the constants. Other attributes use VISA
             defaults unless supplied here. Call reset() explicitly after
             connecting if required.
 
@@ -84,8 +85,7 @@ class dp800:
         RuntimeError
             If already connected. Disconnect before connecting again.
         ValueError
-            If configuration conflicts with the protocol or an invalid resource
-            attribute is supplied.
+            If an invalid resource attribute is supplied.
         TypeError
             If the opened resource is not message-based.
 
@@ -101,7 +101,11 @@ class dp800:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
         for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
             if key in resource_kwargs and resource_kwargs[key] != required:
-                raise ValueError(f"{key} must be {required!r} for the DP800 protocol.")
+                warnings.warn(
+                    f"The driver owns {key}; the supplied value "
+                    f"{resource_kwargs[key]!r} will be ignored. Using {required!r}.",
+                    stacklevel=2,
+                )
         resource_kwargs.update(PROTOCOL_RESOURCE_SETTINGS)
         opening_options = {
             key: resource_kwargs.pop(key)

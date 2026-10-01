@@ -3,6 +3,7 @@
 """Virtual Rigol DP800 series power supply control library."""
 
 import logging
+import warnings
 from typing import Any, Literal
 
 import pyvisa
@@ -49,21 +50,24 @@ class dp800:
             closed. No manager is created by the virtual driver.
         resource_kwargs : dict
             Accepted for compatibility with the hardware driver. Conflicting
-            encoding/termination values are rejected.
+            encoding/termination values emit a warning and are ignored in favor
+            of the driver-owned constants.
             Other values are ignored by this placeholder implementation.
 
         Raises
         ------
         RuntimeError
             If already connected. Disconnect before connecting again.
-        ValueError
-            If conflicting protocol settings are supplied.
         """
         if self._connected:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
         for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
             if key in resource_kwargs and resource_kwargs[key] != required:
-                raise ValueError(f"{key} must be {required!r} for the DP800 protocol.")
+                warnings.warn(
+                    f"The driver owns {key}; the supplied value "
+                    f"{resource_kwargs[key]!r} will be ignored. Using {required!r}.",
+                    stacklevel=2,
+                )
         logger.info(f"Virtual Rigol DP800 connected!")
         self._resource_manager = resource_manager
         self._connected = True

@@ -5,6 +5,7 @@
 import subprocess
 import sys
 import unittest
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pyvisa
@@ -103,24 +104,34 @@ class ConnectionTests(unittest.TestCase):
         self.assertIs(self.driver._resource_manager, self.manager)
 
     def test_matching_protocol_values_are_accepted(self):
-        self.connect(encoding="ascii", read_termination="\n", write_termination="\n")
+        with warnings.catch_warnings(record=True) as emitted:
+            warnings.simplefilter("always")
+            self.connect(
+                encoding="ascii", read_termination="\n", write_termination="\n"
+            )
+        self.assertEqual(emitted, [])
         self.assertIs(self.driver.instr, self.resource)
 
-    def test_protocol_conflicts_are_rejected_before_open(self):
+    def test_protocol_conflicts_warn_and_connect_with_driver_values(self):
         for kwargs in (
             {"encoding": "utf-16"},
             {"read_termination": None},
             {"write_termination": "\r\n"},
         ):
-            with (
-                self.subTest(kwargs=kwargs),
-                patch.object(pyvisa, "ResourceManager") as factory,
-            ):
-                with self.assertRaises(ValueError):
-                    self.driver.connect("TCPIP::example::INSTR", **kwargs)
-                factory.assert_not_called()
-                self.manager.open_resource.assert_not_called()
-                self.assertIsNone(self.driver.instr)
+            with self.subTest(kwargs=kwargs):
+                self.setUp()
+                with self.assertWarns(UserWarning) as emitted:
+                    self.connect(**kwargs)
+                self.assertIn(f"driver owns {next(iter(kwargs))}", str(emitted.warning))
+                self.assertIn("will be ignored", str(emitted.warning))
+                self.manager.open_resource.assert_called_once_with(
+                    "TCPIP::example::INSTR"
+                )
+                self.assertIs(self.driver.instr, self.resource)
+                self.assertEqual(self.resource.encoding, "ascii")
+                self.assertEqual(self.resource.read_termination, "\n")
+                self.assertEqual(self.resource.write_termination, "\n")
+                self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
 
     def test_connecting_twice_raises_without_touching_existing_connection(self):
         self.connect()
@@ -321,17 +332,29 @@ class VirtualConnectionTests(unittest.TestCase):
         manager.open_resource.assert_not_called()
         manager.close.assert_not_called()
 
-    def test_virtual_connection_rejects_protocol_conflicts(self):
-        driver = VirtualDP800()
+    def test_virtual_connection_warns_and_ignores_protocol_conflicts(self):
         for kwargs in (
             {"encoding": "utf-16"},
             {"read_termination": None},
+            {"write_termination": "\r\n"},
         ):
-            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                driver.connect("virtual", **kwargs)
-        driver.connect(
-            "virtual", encoding="ascii", read_termination="\n", write_termination="\n"
-        )
+            with self.subTest(kwargs=kwargs):
+                driver = VirtualDP800()
+                with self.assertWarns(UserWarning) as emitted:
+                    driver.connect("virtual", **kwargs)
+                self.assertIn(f"driver owns {next(iter(kwargs))}", str(emitted.warning))
+                self.assertIn("will be ignored", str(emitted.warning))
+                self.assertTrue(driver._connected)
+                driver.disconnect()
+                with warnings.catch_warnings(record=True) as emitted_matching:
+                    warnings.simplefilter("always")
+                    driver.connect(
+                        "virtual",
+                        encoding="ascii",
+                        read_termination="\n",
+                        write_termination="\n",
+                    )
+                self.assertEqual(emitted_matching, [])
 
 
 if __name__ == "__main__":
