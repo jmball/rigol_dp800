@@ -101,7 +101,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
         self.assertEqual(self.resource.query_delay, 0.1)
         self.assertIs(self.driver._instr, self.resource)
-        self.assertIs(self.driver._resource_manager, self.manager)
 
     def test_matching_protocol_values_are_accepted(self):
         with warnings.catch_warnings(record=True) as emitted:
@@ -157,7 +156,6 @@ class ConnectionTests(unittest.TestCase):
         )
         self.assertEqual(self.resource.closed, 1)
         self.assertIsNone(self.driver._instr)
-        self.assertIsNone(self.driver._resource_manager)
         self.manager.close.assert_not_called()
 
     def test_reconnect_after_disconnect(self):
@@ -215,7 +213,6 @@ class ConnectionTests(unittest.TestCase):
                     self.connect(timeout=500)
                 self.assertEqual(self.resource.closed, 1)
                 self.assertIsNone(self.driver._instr)
-                self.assertIsNone(self.driver._resource_manager)
                 self.manager.close.assert_not_called()
                 replacement = FakeResource()
                 self.manager.open_resource.return_value = replacement
@@ -280,7 +277,6 @@ class ConnectionTests(unittest.TestCase):
             self.driver.disconnect()
         self.manager.close.assert_not_called()
         self.assertIsNone(self.driver._instr)
-        self.assertIsNone(self.driver._resource_manager)
 
     def test_disconnected_io_raises_clear_error(self):
         with self.assertRaisesRegex(RuntimeError, "not connected"):
@@ -321,12 +317,10 @@ class VirtualConnectionTests(unittest.TestCase):
         driver = VirtualDP800()
         with patch.object(pyvisa, "ResourceManager") as factory:
             driver.connect("virtual", resource_manager=manager)
-            self.assertIs(driver._resource_manager, manager)
             with self.assertRaises(RuntimeError):
                 driver.connect("virtual")
             driver.disconnect()
             driver.disconnect()
-            self.assertIsNone(driver._resource_manager)
             driver.connect("virtual")
             factory.assert_not_called()
         manager.open_resource.assert_not_called()

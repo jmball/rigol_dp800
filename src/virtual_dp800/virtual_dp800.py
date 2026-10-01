@@ -28,7 +28,6 @@ class dp800:
             Check instrument error status after every command.
         """
         self._connected = False
-        self._resource_manager: pyvisa.ResourceManager | None = None
 
     def connect(
         self,
@@ -46,8 +45,8 @@ class dp800:
             https://pyvisa.readthedocs.io/en/latest/introduction/names.html for more
             info on correct formatting for resource names.
         resource_manager : pyvisa.ResourceManager, optional
-            Caller-owned manager retained until disconnect, but never used or
-            closed. No manager is created by the virtual driver.
+            Accepted for compatibility with the hardware driver, but never used,
+            retained, or closed. No manager is created by the virtual driver.
         resource_kwargs : dict
             Accepted for compatibility with the hardware driver. Conflicting
             encoding/termination values emit a warning and are ignored in favor
@@ -69,13 +68,11 @@ class dp800:
                     stacklevel=2,
                 )
         logger.info(f"Virtual Rigol DP800 connected!")
-        self._resource_manager = resource_manager
         self._connected = True
 
     def disconnect(self) -> None:
         """Disconnect virtually; repeated calls are harmless."""
         self._connected = False
-        self._resource_manager = None
 
     # --- ANALyser commands ---
 

@@ -41,7 +41,6 @@ class dp800:
 
     def __init__(self) -> None:
         self._instr: MessageBasedResource | None = None
-        self._resource_manager: pyvisa.ResourceManager | None = None
 
     def _get_instr(self) -> MessageBasedResource:
         """Return the connected resource or raise before attempting I/O."""
@@ -65,7 +64,7 @@ class dp800:
             https://pyvisa.readthedocs.io/en/latest/introduction/names.html for more
             info on correct formatting for resource names.
         resource_manager : pyvisa.ResourceManager, optional
-            Manager to use and retain for this connection. A supplied manager
+            Manager to use for this connection. A supplied manager
             remains caller-owned and is never closed by this driver. Otherwise,
             a manager is obtained lazily. The driver never explicitly closes
             managers; their lifecycle is handled by PyVISA or the caller.
@@ -94,7 +93,8 @@ class dp800:
         On failure the resource is closed and the instance stays disconnected.
         No reset, voltage/current setting, or output-enable command is sent.
         PyVISA can reuse a manager for the same backend. This driver closes only
-        its instrument resource and releases its reference to the manager.
+        its instrument resource. The PyVISA resource retains its manager for
+        the connection's lifetime.
         """
         if self._instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
@@ -141,7 +141,6 @@ class dp800:
                         exc_info=True,
                     )
             raise
-        self._resource_manager = manager
         self._instr = resource
 
     def disconnect(self) -> None:
@@ -149,8 +148,8 @@ class dp800:
 
         Already disconnected instances are a no-op. All three output-disable
         commands and local mode are attempted even if one fails. The resource
-        is then closed, and _instr is cleared even if cleanup fails. The retained
-        manager reference is released without closing it. The first error is
+        is then closed, and _instr is cleared even if cleanup fails. The driver
+        does not explicitly close the manager. The first error is
         re-raised after cleanup; subsequent errors are logged.
         """
         resource = self._instr
@@ -173,7 +172,6 @@ class dp800:
                         logger.warning("Additional disconnect error.", exc_info=True)
         finally:
             self._instr = None
-            self._resource_manager = None
             try:
                 resource.close()
             except Exception as exc:
