@@ -20,8 +20,8 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   Keep metadata and source SPDX identifiers consistent. Leave license details and
   Python compatibility requirements out of the README.
 
-There is currently no test suite, CI configuration, or configured formatter,
-linter, or type checker.
+`tests/test_driver.py` contains hardware-free unittest regression tests. There is
+no CI configuration or configured formatter, linter, or type checker.
 
 ## Making changes
 
@@ -35,8 +35,8 @@ linter, or type checker.
   implementations as well as docstrings: some disagree, such as `measure()`
   returning strings in the hardware driver.
 - When changing a public API, inspect the corresponding virtual method and update
-  it where appropriate. Do not assume complete parity: some virtual methods lack
-  `self`, and placeholder return types can differ from the hardware driver.
+  it where appropriate. Do not assume complete parity: placeholder return types
+  can differ from the hardware driver.
 - Many hardware methods only warn `Not implemented.`. Treat these as unfinished
   functionality, and keep unrelated fixes out of the task.
 - For SCPI changes, verify command spelling, separators, query suffixes, response
@@ -64,18 +64,26 @@ Run `git diff --check` for whitespace errors. For documentation-only changes,
 review the text and diff; dependency installation and hardware checks are not
 needed. Keep environments, bytecode, build outputs, and egg metadata untracked.
 
-For driver behavior changes, use focused tests with a fake VISA resource that
-records writes and supplies query responses. Mock `pyvisa.ResourceManager`
-before importing the hardware package: the module creates a resource manager at
-import time. Merely replacing `self.instr` afterward does not avoid that setup.
+Run regression tests with `.venv/bin/python -m unittest discover -s tests -v`
+after installing the checkout. For driver behavior changes, use focused tests
+with a fake VISA resource that records writes and supplies query responses.
+Importing the hardware package does not create a resource manager. Inject a fake
+manager into connect() or patch `pyvisa.ResourceManager` before connecting.
 The virtual package alone cannot validate SCPI commands or response parsing.
 Report which checks ran and any hardware behavior that remains unverified.
 
 ## Hardware behavior
 
-`connect()` opens a VISA resource, resets the instrument by default, and switches
-to remote mode. `disconnect()` disables outputs on channels 1, 2, and 3 before
-returning to local mode and closing the resource. Account for these side effects
+`connect()` opens a message-based VISA resource, configures ASCII/LF framing,
+switches to remote mode, and queries identity before publishing `self.instr`.
+Conflicting protocol settings and the removed reset option are rejected. Reset
+is an explicit caller operation. Connecting twice raises until disconnect.
+Initialization failures close the resource. Managers are retained for the
+connection's lifetime; injected managers stay caller-owned, while default
+managers are created lazily and closed by the driver.
+`disconnect()` attempts to disable outputs on channels 1, 2, and 3 and return to
+local mode, then closes the resource and clears `self.instr` even on failure.
+Repeated disconnect calls are harmless. Account for these side effects
 when designing tests. Use mocks for routine validation; exercise real hardware
 only within the user's authorized task and device configuration.
 

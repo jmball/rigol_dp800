@@ -3,7 +3,9 @@
 """Virtual Rigol DP800 series power supply control library."""
 
 import logging
+from typing import Any, Literal
 
+import pyvisa
 
 # Instrument errors raise warnings. Make sure logger captures them.
 logging.captureWarnings(True)
@@ -14,7 +16,7 @@ logger.addHandler(logging.NullHandler())
 class dp800:
     """Virtual Rigol DP800 series power supply instrument."""
 
-    def __init__(self, check_errors=True):
+    def __init__(self, check_errors: bool = True) -> None:
         """Initialise object.
 
         Parameters
@@ -22,13 +24,17 @@ class dp800:
         check_errors : bool, optional
             Check instrument error status after every command.
         """
-        # self.check_errors = check_errors
-        pass
+        self._connected = False
+        self._resource_manager: pyvisa.ResourceManager | None = None
 
     def connect(
-        self, resource_name, reset=True, **resource_kwargs,
-    ):
-        """Conntect to the instrument and set remote mode.
+        self,
+        resource_name: str,
+        *,
+        resource_manager: pyvisa.ResourceManager | None = None,
+        **resource_kwargs: Any,
+    ) -> None:
+        """Connect virtually, without opening hardware or resetting state.
 
         Parameters
         ----------
@@ -36,29 +42,53 @@ class dp800:
             Full VISA resource name, e.g. "ASRL2::INSTR", "GPIB0::14::INSTR" etc. See
             https://pyvisa.readthedocs.io/en/latest/introduction/names.html for more
             info on correct formatting for resource names.
-        reset : bool, optional
-            Reset the instrument to the built-in default configuration.
+        resource_manager : pyvisa.ResourceManager, optional
+            Caller-owned manager retained until disconnect, but never used or
+            closed. No manager is created by the virtual driver.
         resource_kwargs : dict
-            Keyword arguments to be used to change instrument attributes after
-            construction.
-        """
-        # self.instr = rm.open_resource(resource_name, **resource_kwargs)
-        # if reset is True:
-        #     self.reset()
-        # self.set_remote()
-        logger.info(f"Virtual Rigol DP800 connected!")
+            Accepted for compatibility with the hardware driver. Conflicting
+            encoding/termination values and the removed reset option are rejected.
+            Other values are ignored by this placeholder implementation.
 
-    def disconnect(self):
-        """Disconnect the instrument after returning to local mode."""
-        # self.set_local()
-        # self.instr.close()
-        pass
+        Raises
+        ------
+        RuntimeError
+            If already connected. Disconnect before connecting again.
+        ValueError
+            If reset or conflicting protocol settings are supplied.
+        """
+        if self._connected:
+            raise RuntimeError("Already connected; disconnect before reconnecting.")
+        if "reset" in resource_kwargs:
+            raise ValueError(
+                "reset is no longer a connect option; call reset() explicitly."
+            )
+        for key, required in {
+            "encoding": "ascii",
+            "read_termination": "\n",
+            "write_termination": "\n",
+        }.items():
+            if key in resource_kwargs and resource_kwargs[key] != required:
+                raise ValueError(f"{key} must be {required!r} for the DP800 protocol.")
+        logger.info(f"Virtual Rigol DP800 connected!")
+        self._resource_manager = resource_manager
+        self._connected = True
+
+    def disconnect(self) -> None:
+        """Disconnect virtually; repeated calls are harmless."""
+        self._connected = False
+        self._resource_manager = None
 
     # --- ANALyser commands ---
 
     # --- APPLy commands---
 
-    def set_apply(self, channel=None, voltage=None, current=None):
+    def set_apply(
+        self,
+        channel: int | None = None,
+        voltage: float | Literal["MIN", "MAX", "DEF"] | None = None,
+        current: float | Literal["MIN", "MAX", "DEF"] | None = None,
+    ) -> None:
         """Select a channel and set its current and/or voltage.
 
         Parameters
@@ -93,7 +123,11 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_apply(self, channel=None, function=None):
+    def get_apply(
+        self,
+        channel: int | None = None,
+        function: Literal["CURR", "VOLT"] | None = None,
+    ) -> float:
         """Get the voltage and/or current of the selected channel.
 
         Parameters
@@ -150,7 +184,9 @@ class dp800:
 
     # --- DELAY commands ---
 
-    def set_delay_cycles(self, finite, cycles=None):
+    def set_delay_cycles(
+        self, finite: Literal["N", "I"], cycles: int | None = None
+    ) -> None:
         """Set the number of cycles for the delayer.
 
         Parameters
@@ -173,7 +209,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_delay_cycles(self):
+    def get_delay_cycles(self) -> str:
         """Get the number of cycles for the delayer.
 
         Returns
@@ -194,7 +230,7 @@ class dp800:
         #     return resp[0], int(resp[1])
         return ""
 
-    def set_delay_end_state(self, endstate):
+    def set_delay_end_state(self, endstate: Literal["ON", "OFF", "LAST"]) -> None:
         """Set the state of the instrument when the delayer stops.
 
         Parameters
@@ -210,7 +246,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_delay_end_state(self):
+    def get_delay_end_state(self) -> str:
         """Get the state of the instrument when the delayer stops.
 
         Returns
@@ -228,7 +264,7 @@ class dp800:
         # return endstate
         return ""
 
-    def set_delay_groups(self, groups):
+    def set_delay_groups(self, groups: int) -> None:
         """Set the number of output groups of the delayer.
 
         Parameters
@@ -244,7 +280,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_delay_groups(self):
+    def get_delay_groups(self) -> int:
         """Get the number of output groups of the delayer.
 
         Returns
@@ -262,15 +298,15 @@ class dp800:
         # return groups
         return 0
 
-    def set_delay_parameters(self):
+    def set_delay_parameters(self) -> None:
         """Set the delayer parameters of the specified group."""
         pass
 
-    def get_delay_parameters(self):
+    def get_delay_parameters(self) -> None:
         """Get the delayer parameters of the specified group."""
         pass
 
-    def set_delay_state(self, enable):
+    def set_delay_state(self, enable: bool) -> None:
         """Enable/disable the delay output function.
 
         Applies to currently selected channel.
@@ -280,36 +316,36 @@ class dp800:
         """
         pass
 
-    def get_delay_state(self, enable):
+    def get_delay_state(self, enable: bool) -> None:
         """Get the enable/disable state of the delay output function.
 
         Applies to current channel.
         """
         pass
 
-    def set_delay_state_pattern(self):
+    def set_delay_state_pattern(self) -> None:
         pass
 
-    def get_delay_state_pattern(self):
+    def get_delay_state_pattern(self) -> None:
         pass
 
-    def set_delay_stop_condition(self):
+    def set_delay_stop_condition(self) -> None:
         pass
 
-    def get_delay_stop_condition(self):
+    def get_delay_stop_condition(self) -> None:
         pass
 
-    def set_delay_time_method(self):
+    def set_delay_time_method(self) -> None:
         pass
 
-    def get_delay_time_method(self):
+    def get_delay_time_method(self) -> None:
         pass
 
     # --- DISPlay commands ---
 
     # --- IEEE488.2 common commands ---
 
-    def clear_event_registers(self):
+    def clear_event_registers(self) -> None:
         """Clear all event registers."""
         # self.instr.write("*CLS")
 
@@ -317,7 +353,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_standard_event_enable_register(self, value):
+    def set_standard_event_enable_register(self, value: int) -> None:
         """Enable bits in the standard event enable register.
 
         Parameters
@@ -333,7 +369,7 @@ class dp800:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
 
-    def get_standard_event_enable_register(self):
+    def get_standard_event_enable_register(self) -> int:
         """Get the standard event enable register value.
 
         Returns
@@ -349,7 +385,7 @@ class dp800:
         # return value
         return 0
 
-    def get_standard_event_register(self):
+    def get_standard_event_register(self) -> int:
         """Get the standard event register value.
 
         Returns
@@ -362,7 +398,7 @@ class dp800:
         # return value
         return 0
 
-    def get_id(self):
+    def get_id(self) -> str:
         """Get instrument identity string.
 
         Returns
@@ -379,7 +415,7 @@ class dp800:
         # return idn
         return "Virtual Rigol DP800"
 
-    def set_opc(self):
+    def set_opc(self) -> None:
         """Set operation complete.
 
         Sets bit 0 of the standard event register after completing the current
@@ -391,7 +427,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_opc(self):
+    def get_opc(self) -> int:
         """Query whether current operation is complete.
 
         Returns
@@ -410,7 +446,7 @@ class dp800:
         # return opc
         return 0
 
-    def get_option_installation_status(self):
+    def get_option_installation_status(self) -> list[str]:
         """Get the status of installed options.
 
         Returns
@@ -427,7 +463,7 @@ class dp800:
         # return options
         return [""]
 
-    def set_power_on_status_clear_bit(self, value):
+    def set_power_on_status_clear_bit(self, value: int) -> None:
         """Set the power-on status clear bit.
 
         Parameters
@@ -445,7 +481,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_power_on_status_clear_bit(self):
+    def get_power_on_status_clear_bit(self) -> int:
         """Get the power-on status clear bit.
 
         Returns
@@ -465,7 +501,7 @@ class dp800:
         # return value
         return 0
 
-    def recall_setup(self, number):
+    def recall_setup(self, number: int) -> None:
         """Recall instrument setup from setting buffer.
 
         Parameters
@@ -480,7 +516,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset the instrument to the factory default configuration."""
         # cmd = f"*RST"
         # self.instr.write(cmd)
@@ -489,7 +525,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def save_setup(self, number):
+    def save_setup(self, number: int) -> None:
         """Save the instrument setup in a settings buffer.
 
         Parameters
@@ -504,7 +540,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_status_byte_enable_register(self, value):
+    def set_status_byte_enable_register(self, value: int) -> None:
         """Enable bits in the status byte enable register.
 
         Parameters
@@ -520,7 +556,7 @@ class dp800:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
 
-    def get_status_byte_enable_register(self):
+    def get_status_byte_enable_register(self) -> int:
         """Get the status byte enable register value.
 
         Returns
@@ -533,7 +569,7 @@ class dp800:
         # return value
         return 0
 
-    def get_status_byte_register(self):
+    def get_status_byte_register(self) -> int:
         """Get the status byte register value.
 
         Querying this register does not clear it.
@@ -548,7 +584,7 @@ class dp800:
         # return value
         return 0
 
-    def trigger(self):
+    def trigger(self) -> None:
         """Generate a trigger.
 
         Only available when bus (software) trigger is selected.
@@ -559,13 +595,13 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_self_test_results(self):
+    def get_self_test_results(self) -> list[str]:
         """Get the results of the instrument self-test.
 
         Returns
         -------
         result : list
-            List of test results for the top board, bottom board, and fan.    
+            List of test results for the top board, bottom board, and fan.
         """
         # result = self.instr.query("*TST?").split(",")
 
@@ -575,7 +611,7 @@ class dp800:
         # return result
         return []
 
-    def wait(self):
+    def wait(self) -> None:
         """Wait until processing all pending commands is complete."""
         # self.instr.write("*WAI")
 
@@ -585,7 +621,7 @@ class dp800:
 
     # --- INITiate command ---
 
-    def init_trigger(self):
+    def init_trigger(self) -> None:
         """Initialise the trigger system."""
         # cmd = ":INIT"
         # self.instr.write(cmd)
@@ -596,7 +632,7 @@ class dp800:
 
     # --- INSTrument commands ---
 
-    def set_trigger_coupling_channels(self, channels):
+    def set_trigger_coupling_channels(self, channels: str | list[str]) -> None:
         """Set trigger coupling channels.
 
         Only applicable to multi-channel models.
@@ -616,7 +652,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_trigger_coupling_channels(self):
+    def get_trigger_coupling_channels(self) -> str:
         """Get trigger coupling channels.
 
         Only applicable to multi-channel models.
@@ -637,7 +673,7 @@ class dp800:
         # return channels
         return ""
 
-    def set_channel(self, channel):
+    def set_channel(self, channel: int) -> None:
         """Select the current channel.
 
         Only applicable to multi-channel models.
@@ -658,7 +694,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_channel(self):
+    def get_channel(self) -> int:
         """Get the currently selected channel.
 
         Only applicable to multi-channel models.
@@ -683,7 +719,7 @@ class dp800:
 
     # --- LIC commands ---
 
-    def install_options(self, options_licence):
+    def install_options(self, options_licence: str) -> None:
         """Install options.
 
         Only applicable to DP831/DP832/DP821/DP811.
@@ -701,7 +737,11 @@ class dp800:
 
     # --- MEASure commands ---
 
-    def measure(self, func=None, channel=None):
+    def measure(
+        self,
+        func: Literal["ALL", "CURR", "POWE", "VOLT"] | None = None,
+        channel: int | None = None,
+    ) -> float:
         """Read the voltage, current, and/or power of a channel.
 
         Parameters
@@ -741,7 +781,7 @@ class dp800:
 
     # --- OUTPut commands ---
 
-    def get_output_mode(self, channel=None):
+    def get_output_mode(self, channel: int | None = None) -> str:
         """Get the output mode of the specified channel.
 
         The instrument offers two functionally equivalent commands to query the output
@@ -770,7 +810,7 @@ class dp800:
         # return mode
         return ""
 
-    def get_ocp(self, channel=None):
+    def get_ocp(self, channel: int | None = None) -> bool:
         """Query whether current of a channel has exceeded its OCP value.
 
         The output turns off automatically when the overcurrent protection (OCP) value
@@ -809,7 +849,7 @@ class dp800:
         # return ocp_alarm
         return False
 
-    def clear_ocp_label(self, channel=None):
+    def clear_ocp_label(self, channel: int | None = None) -> None:
         """Clear the overcurrent protection alarm label.
 
         Parameters
@@ -826,7 +866,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_ocp_enable(self, enable, channel=None):
+    def set_ocp_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the overcurrent protection function.
 
         The instrument provides two commands to set this function. This method uses
@@ -852,7 +892,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_ocp_enable(self, channel=None):
+    def get_ocp_enable(self, channel: int | None = None) -> bool:
         """Query enable/disabled state of the overcurrent protection function.
 
         The instrument provides two commands to set this function. This method uses
@@ -883,7 +923,9 @@ class dp800:
         # return enable
         return False
 
-    def set_ocp_value(self, value, channel=None):
+    def set_ocp_value(
+        self, value: float | Literal["MIN", "MAX"], channel: int | None = None
+    ) -> None:
         """Set the overcurrent protection value for a channel.
 
         The instrument provides two commands to set this function. This method uses
@@ -906,7 +948,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_ocp_value(self, channel=None):
+    def get_ocp_value(self, channel: int | None = None) -> float:
         """Get the overcurrent protection value for a channel.
 
         The instrument provides two commands to set this function. This method uses
@@ -937,7 +979,7 @@ class dp800:
         # return value
         return 0.0
 
-    def get_ovp(self, channel=None):
+    def get_ovp(self, channel: int | None = None) -> bool:
         """Query whether current of a channel has exceeded its OVP value.
 
         The output turns off automatically when the overvoltage protection (OVP) value
@@ -976,7 +1018,7 @@ class dp800:
         # return ovp_alarm
         return False
 
-    def clear_ovp_label(self, channel=None):
+    def clear_ovp_label(self, channel: int | None = None) -> None:
         """Clear the overvoltage protection alarm label.
 
         Parameters
@@ -993,7 +1035,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_ovp_enable(self, enable, channel=None):
+    def set_ovp_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the overvoltage protection function.
 
         The instrument provides two commands to set this function. This method uses
@@ -1019,9 +1061,9 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_ovp_enable(self, channel=None):
+    def get_ovp_enable(self, channel: int | None = None) -> bool:
         """Query enable/disabled state of the overvoltage protection function.
-        
+
         The instrument provides two commands to set this function. This method uses
         the `output` command rather than the `source` command.
 
@@ -1050,7 +1092,9 @@ class dp800:
         # return enable
         return False
 
-    def set_ovp_value(self, value, channel=None):
+    def set_ovp_value(
+        self, value: float | Literal["MIN", "MAX"], channel: int | None = None
+    ) -> None:
         """Set the overvoltage protection value for a channel.
 
         The instrument provides two commands to set this function. This method uses
@@ -1073,7 +1117,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_ovp_value(self, channel=None):
+    def get_ovp_value(self, channel: int | None = None) -> float:
         """Get the overvoltage protection value for a channel.
 
         The instrument provides two commands to set this function. This method uses
@@ -1104,11 +1148,11 @@ class dp800:
         # return value
         return 0.0
 
-    def set_output_range(self, range):
+    def set_output_range(self, range: str) -> None:
         """Only applicable to single channel model."""
         pass
 
-    def set_output_sense_enable(self, enable, channel=None):
+    def set_output_sense_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable output sense function.
 
         Only supported on some channels for some models.
@@ -1133,7 +1177,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_output_sense_enable(self, channel=None):
+    def get_output_sense_enable(self, channel: int | None = None) -> bool:
         """Get enable/disable state of output sense function.
 
         Only supported on some channels for some models.
@@ -1165,7 +1209,7 @@ class dp800:
         # return enable
         return False
 
-    def set_output_enable(self, enable, channel=None):
+    def set_output_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the output of a channel.
 
         Parameters
@@ -1188,7 +1232,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_output_enable(self, channel=None):
+    def get_output_enable(self, channel: int | None = None) -> bool:
         """Get enabled/disabled state of the output of a channel.
 
         Parameters
@@ -1216,22 +1260,22 @@ class dp800:
         # return enable
         return False
 
-    def set_output_timer():
+    def set_output_timer(self) -> None:
         pass
 
-    def get_output_timer():
+    def get_output_timer(self) -> None:
         pass
 
-    def set_output_timer_enable():
+    def set_output_timer_enable(self) -> None:
         pass
 
-    def get_output_timer_enable():
+    def get_output_timer_enable(self) -> None:
         pass
 
-    def set_output_track():
+    def set_output_track(self) -> None:
         pass
 
-    def get_output_track():
+    def get_output_track(self) -> None:
         pass
 
     # --- PRESet commands ---
@@ -1242,7 +1286,11 @@ class dp800:
 
     # --- SOURce commands ---
 
-    def set_current(self, current, channel=None):
+    def set_current(
+        self,
+        current: float | Literal["MIN", "MAX", "UP", "DOWN"],
+        channel: int | None = None,
+    ) -> None:
         """Set the current of specified channel.
 
         Parameters
@@ -1262,7 +1310,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_current(self, channel=None):
+    def get_current(self, channel: int | None = None) -> float:
         """Get the current setting of a channel.
 
         Parameters
@@ -1286,22 +1334,30 @@ class dp800:
         # return current
         return 0.0
 
-    def set_current_step():
+    def set_current_step(self) -> None:
         pass
 
-    def get_current_step():
+    def get_current_step(self) -> None:
         pass
 
-    def set_source_trigger(self, func, level, channel=None):
+    def set_source_trigger(
+        self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
+    ) -> None:
         pass
 
-    def get_source_trigger(self, func, level, channel=None):
+    def get_source_trigger(
+        self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
+    ) -> None:
         pass
 
-    def clear_ocp_circuit():
+    def clear_ocp_circuit(self) -> None:
         pass
 
-    def set_voltage(self, voltage, channel=None):
+    def set_voltage(
+        self,
+        voltage: float | Literal["MIN", "MAX", "UP", "DOWN"],
+        channel: int | None = None,
+    ) -> None:
         """Set the voltage of specified channel.
 
         Parameters
@@ -1321,7 +1377,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_voltage(self, channel=None):
+    def get_voltage(self, channel: int | None = None) -> float:
         """Get the voltage setting of a channel.
 
         Parameters
@@ -1345,16 +1401,16 @@ class dp800:
         # return voltage
         return 0.0
 
-    def set_voltage_step():
+    def set_voltage_step(self) -> None:
         pass
 
-    def get_voltage_step():
+    def get_voltage_step(self) -> None:
         pass
 
-    def clear_ovp_circuit():
+    def clear_ovp_circuit(self) -> None:
         pass
 
-    def set_voltage_range(self, range, channel=None):
+    def set_voltage_range(self, range: str, channel: int | None = None) -> None:
         """Set the voltage range of a channel.
 
         Only applicable to single channel model.
@@ -1367,37 +1423,37 @@ class dp800:
 
     # --- SYSTem commands ---
 
-    def set_beeper():
+    def set_beeper(self) -> None:
         pass
 
-    def get_beeper():
+    def get_beeper(self) -> None:
         pass
 
-    def set_gpib_config():
+    def set_gpib_config(self) -> None:
         pass
 
-    def get_gpib_config():
+    def get_gpib_config(self) -> None:
         pass
 
-    def set_lan_config():
+    def set_lan_config(self) -> None:
         pass
 
-    def get_lan_config():
+    def get_lan_config(self) -> None:
         pass
 
-    def set_rs232_config():
+    def set_rs232_config(self) -> None:
         pass
 
-    def get_rs232_config():
+    def get_rs232_config(self) -> None:
         pass
 
-    def set_contrast():
+    def set_contrast(self) -> None:
         pass
 
-    def get_contrast():
+    def get_contrast(self) -> None:
         pass
 
-    def get_error():
+    def get_error(self) -> list[str]:
         """Query and clear error messages in the error queue.
 
         Returns
@@ -1411,13 +1467,13 @@ class dp800:
         #     warnings.warn(f"Instrument error: {code}, {msg}")
         return []
 
-    def set_key_keylock():
+    def set_key_keylock(self) -> None:
         pass
 
-    def get_key_keylock():
+    def get_key_keylock(self) -> None:
         pass
 
-    def set_keylock_enable(self, enable):
+    def set_keylock_enable(self, enable: bool) -> None:
         """Enable/disable front panel keys in remote mode.
 
         Parameters
@@ -1436,7 +1492,7 @@ class dp800:
         #     self.get_error()
         pass
 
-    def get_keylock_enable(self):
+    def get_keylock_enable(self) -> bool:
         """Querey enable/disable state of front panel keys in remote mode.
 
         Returns
@@ -1457,13 +1513,13 @@ class dp800:
         # return enable
         return False
 
-    def set_language():
+    def set_language(self) -> None:
         pass
 
-    def get_language():
+    def get_language(self) -> None:
         pass
 
-    def set_local(self):
+    def set_local(self) -> None:
         """Return instrument to local mode."""
         # self.instr.write(":SYST:LOC")
 
@@ -1471,31 +1527,31 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_lock():
+    def set_lock(self) -> None:
         pass
 
-    def get_lock():
+    def get_lock(self) -> None:
         pass
 
-    def set_on_off_sync():
+    def set_on_off_sync(self) -> None:
         pass
 
-    def get_on_off_sync():
+    def get_on_off_sync(self) -> None:
         pass
 
-    def set_otp_enable():
+    def set_otp_enable(self) -> None:
         pass
 
-    def get_otp_enable():
+    def get_otp_enable(self) -> None:
         pass
 
-    def set_power_on_config_mode():
+    def set_power_on_config_mode(self) -> None:
         pass
 
-    def get_power_on_config_mode():
+    def get_power_on_config_mode(self) -> None:
         pass
 
-    def set_remote(self):
+    def set_remote(self) -> None:
         """Set the instrument to remote mode."""
         # self.instr.write(":SYST:REM")
 
@@ -1503,16 +1559,16 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_brightness():
+    def set_brightness(self) -> None:
         pass
 
-    def get_brightness():
+    def get_brightness(self) -> None:
         pass
 
-    def set_screen_saver_enable():
+    def set_screen_saver_enable(self) -> None:
         pass
 
-    def get_temperature_test_result(self):
+    def get_temperature_test_result(self) -> float:
         """Query the self-test result of the temperature.
 
         Returns
@@ -1528,13 +1584,13 @@ class dp800:
         # return temperature
         return 0.0
 
-    def set_track_mode():
+    def set_track_mode(self) -> None:
         pass
 
-    def get_track_mode():
+    def get_track_mode(self) -> None:
         pass
 
-    def get_scpi_version():
+    def get_scpi_version(self) -> None:
         pass
 
     # --- TIMEr commands ---
