@@ -312,6 +312,23 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not connected"):
             self.driver.set_voltage(1)
 
+    def test_io_wrappers_preserve_visa_return_values_and_exceptions(self):
+        self.connect()
+        self.assertEqual(self.driver._write("*CLS"), len("*CLS"))
+        self.resource.responses[":MEAS?"] = "  1.200\n"
+        self.assertEqual(self.driver._query(":MEAS?"), "  1.200\n")
+        error = pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout)
+        self.resource.write_errors["*CLS"] = error
+        self.resource.query_error = error
+        for operation, command in (
+            (self.driver._write, "*CLS"),
+            (self.driver._query, ":MEAS?"),
+        ):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaises(pyvisa.errors.VisaIOError) as raised:
+                    operation(command)
+                self.assertIs(raised.exception, error)
+
     def test_reset_remains_an_explicit_operation(self):
         self.connect()
         self.driver.reset()

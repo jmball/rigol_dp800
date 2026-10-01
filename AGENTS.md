@@ -6,7 +6,9 @@ This is `rigol_dp800`, a Python library for controlling Rigol DP800 series power
 supplies through PyVISA. The project uses a `src/` layout and setuptools.
 
 - `src/dp800/dp800.py`: hardware driver, with methods grouped by SCPI command
-  family. Commands go through `self._instr.write()` and `self._instr.query()`.
+  family. Connected commands go through the driver's `_write()` and `_query()`
+  wrappers, which check connection state and delegate to PyVISA. Initialization
+  and resource closing use the local resource directly.
 - `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. Most setters
   are no-ops and getters return fixed placeholders; it is not a stateful simulator.
 - Both packages export a lowercase `dp800` class through their `__init__.py` and
