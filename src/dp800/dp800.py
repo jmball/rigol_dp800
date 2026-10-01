@@ -95,7 +95,9 @@ class dp800:
 
         Notes
         -----
-        Remote mode and the identity query must succeed before _instr is assigned.
+        Remote mode must succeed before _instr is assigned. Call get_id()
+        explicitly if identification is required; connection logging is left
+        to the caller.
         The instance stays disconnected on failure. PyVISA handles cleanup if
         open_resource() raises; the driver closes the returned resource if
         subsequent initialization fails.
@@ -123,8 +125,6 @@ class dp800:
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
             resource.write(":SYST:REM")
-            identity = resource.query("*IDN?")
-            logger.info("%s connected!", identity)
         except BaseException:
             if resource is not None:
                 try:

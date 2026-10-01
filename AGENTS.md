@@ -79,7 +79,9 @@ Report which checks ran and any hardware behavior that remains unverified.
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-switches to remote mode, and queries identity before publishing `self._instr`.
+and switches to remote mode before publishing `self._instr`. Identity queries
+and connection logging are caller responsibilities; call get_id() explicitly
+when identification is needed.
 Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.
 Reset is an explicit caller operation.
