@@ -26,8 +26,6 @@ PROTOCOL_RESOURCE_SETTINGS: Final = MappingProxyType(
     }
 )
 
-# Instrument errors raise warnings. Make sure logger captures them.
-logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
@@ -169,7 +167,11 @@ class dp800:
                     if error is None:
                         error = exc
                     else:
-                        logger.warning("Additional disconnect error.", exc_info=True)
+                        logger.warning(
+                            "Additional disconnect error for command %r.",
+                            command,
+                            exc_info=True,
+                        )
         finally:
             self._instr = None
             try:

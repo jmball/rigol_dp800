@@ -10,8 +10,6 @@ import pyvisa
 
 from dp800.dp800 import PROTOCOL_RESOURCE_SETTINGS
 
-# Instrument errors raise warnings. Make sure logger captures them.
-logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
@@ -67,7 +65,7 @@ class dp800:
                     f"{resource_kwargs[key]!r} will be ignored. Using {required!r}.",
                     stacklevel=2,
                 )
-        logger.info(f"Virtual Rigol DP800 connected!")
+        logger.info("Virtual Rigol DP800 connected!")
         self._connected = True
 
     def disconnect(self) -> None:

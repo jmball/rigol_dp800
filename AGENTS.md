@@ -44,6 +44,8 @@ no CI configuration or configured formatter, linter, or type checker.
   module docstring links to the instrument documentation.
 - Preserve the module logger and warning conventions. Avoid adding dependencies
   or replacing the packaging approach for unrelated changes.
+- Leave global logging configuration and warning capture to the application.
+  Modules use named loggers with NullHandler; do not call captureWarnings().
 
 ## Setup and validation
 

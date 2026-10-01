@@ -85,6 +85,27 @@ class ConnectionTests(unittest.TestCase):
             check=True,
         )
 
+    def test_import_preserves_application_warning_and_logging_configuration(self):
+        for package in ("dp800", "virtual_dp800"):
+            for capture_warnings in (False, True):
+                with self.subTest(package=package, capture_warnings=capture_warnings):
+                    subprocess.run(
+                        [
+                            sys.executable,
+                            "-c",
+                            "import logging, warnings, pyvisa; "
+                            "warnings.showwarning = lambda *args, **kwargs: None; "
+                            f"logging.captureWarnings({capture_warnings!r}); "
+                            "warning_handler = warnings.showwarning; "
+                            "root = logging.getLogger(); "
+                            "configuration = (root.level, list(root.handlers), list(root.filters)); "
+                            f"import {package}; "
+                            "assert warnings.showwarning is warning_handler; "
+                            "assert (root.level, root.handlers, root.filters) == configuration",
+                        ],
+                        check=True,
+                    )
+
     def test_configuration_precedes_io_and_publication_without_reset(self):
         def check_initialization():
             self.assertIsNone(self.driver._instr)
@@ -258,9 +279,16 @@ class ConnectionTests(unittest.TestCase):
         self.resource.write_errors[":OUTP  CH1,OFF"] = error
         self.resource.write_errors[":SYST:LOC"] = OSError("Local mode failed")
         self.resource.close_error = OSError("Close failed")
-        with self.assertLogs("dp800.dp800", level="WARNING"):
+        with self.assertLogs("dp800.dp800", level="WARNING") as captured:
             with self.assertRaises(OSError) as raised:
                 self.driver.disconnect()
+        command_log = next(
+            record
+            for record in captured.records
+            if "Additional disconnect error" in record.getMessage()
+        )
+        self.assertIn(":SYST:LOC", command_log.getMessage())
+        self.assertIs(command_log.exc_info[1], self.resource.write_errors[":SYST:LOC"])
         self.assertIs(raised.exception, error)
         self.assertIn(":OUTP  CH3,OFF", self.resource.commands)
         self.assertIn(":SYST:LOC", self.resource.commands)
