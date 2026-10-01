@@ -76,8 +76,9 @@ Report which checks ran and any hardware behavior that remains unverified.
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
 switches to remote mode, and queries identity before publishing `self.instr`.
-Conflicting protocol settings and the removed reset option are rejected. Reset
-is an explicit caller operation. Connecting twice raises until disconnect.
+Framing values are module-level constants shared with the virtual driver, and
+conflicting settings are rejected. Reset is an explicit caller operation.
+Connecting twice raises until disconnect.
 Initialization failures close the resource. Managers are retained for the
 connection's lifetime; injected managers stay caller-owned, while default
 managers are created lazily and closed by the driver.

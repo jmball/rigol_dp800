@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 import pyvisa
 
+from dp800.dp800 import PROTOCOL_RESOURCE_SETTINGS
+
 # Instrument errors raise warnings. Make sure logger captures them.
 logging.captureWarnings(True)
 logger = logging.getLogger(__name__)
@@ -47,7 +49,7 @@ class dp800:
             closed. No manager is created by the virtual driver.
         resource_kwargs : dict
             Accepted for compatibility with the hardware driver. Conflicting
-            encoding/termination values and the removed reset option are rejected.
+            encoding/termination values are rejected.
             Other values are ignored by this placeholder implementation.
 
         Raises
@@ -55,19 +57,11 @@ class dp800:
         RuntimeError
             If already connected. Disconnect before connecting again.
         ValueError
-            If reset or conflicting protocol settings are supplied.
+            If conflicting protocol settings are supplied.
         """
         if self._connected:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
-        if "reset" in resource_kwargs:
-            raise ValueError(
-                "reset is no longer a connect option; call reset() explicitly."
-            )
-        for key, required in {
-            "encoding": "ascii",
-            "read_termination": "\n",
-            "write_termination": "\n",
-        }.items():
+        for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
             if key in resource_kwargs and resource_kwargs[key] != required:
                 raise ValueError(f"{key} must be {required!r} for the DP800 protocol.")
         logger.info(f"Virtual Rigol DP800 connected!")

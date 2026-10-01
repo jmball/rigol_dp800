@@ -8,10 +8,23 @@ https://www.rigolna.com/products/dc-power-loads/dp800/.
 
 import logging
 import warnings
-from typing import Any, Literal
+from types import MappingProxyType
+from typing import Any, Final, Literal
 
 import pyvisa
 from pyvisa.resources import MessageBasedResource, Resource
+
+# Fixed SCPI framing used by the driver, shared by all connections.
+ENCODING: Final = "ascii"
+WRITE_TERMINATION: Final = "\n"
+READ_TERMINATION: Final = "\n"
+PROTOCOL_RESOURCE_SETTINGS: Final = MappingProxyType(
+    {
+        "encoding": ENCODING,
+        "write_termination": WRITE_TERMINATION,
+        "read_termination": READ_TERMINATION,
+    }
+)
 
 # Instrument errors raise warnings. Make sure logger captures them.
 logging.captureWarnings(True)
@@ -73,15 +86,16 @@ class dp800:
             after opening so failures can close the resource. This driver uses
             ASCII encoding and LF ("\\n") read/write termination; explicit
             values for these attributes must match. Other attributes use VISA
-            defaults unless supplied here. The removed reset option is rejected;
-            call reset() explicitly after connecting if required.
+            defaults unless supplied here. Call reset() explicitly after
+            connecting if required.
 
         Raises
         ------
         RuntimeError
             If already connected. Disconnect before connecting again.
         ValueError
-            If configuration conflicts with the protocol or reset is supplied.
+            If configuration conflicts with the protocol or an invalid resource
+            attribute is supplied.
         TypeError
             If the opened resource is not message-based.
 
@@ -96,19 +110,10 @@ class dp800:
         """
         if self.instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
-        if "reset" in resource_kwargs:
-            raise ValueError(
-                "reset is no longer a connect option; call reset() explicitly."
-            )
-        protocol = {
-            "encoding": "ascii",
-            "read_termination": "\n",
-            "write_termination": "\n",
-        }
-        for key, required in protocol.items():
+        for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
             if key in resource_kwargs and resource_kwargs[key] != required:
                 raise ValueError(f"{key} must be {required!r} for the DP800 protocol.")
-        resource_kwargs.update(protocol)
+        resource_kwargs.update(PROTOCOL_RESOURCE_SETTINGS)
         opening_options = {
             key: resource_kwargs.pop(key)
             for key in ("access_mode", "open_timeout", "resource_pyclass")

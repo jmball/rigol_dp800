@@ -106,13 +106,11 @@ class ConnectionTests(unittest.TestCase):
         self.connect(encoding="ascii", read_termination="\n", write_termination="\n")
         self.assertIs(self.driver.instr, self.resource)
 
-    def test_protocol_conflicts_and_removed_reset_are_rejected_before_open(self):
+    def test_protocol_conflicts_are_rejected_before_open(self):
         for kwargs in (
             {"encoding": "utf-16"},
             {"read_termination": None},
             {"write_termination": "\r\n"},
-            {"reset": False},
-            {"reset": True},
         ):
             with (
                 self.subTest(kwargs=kwargs),
@@ -324,10 +322,9 @@ class VirtualConnectionTests(unittest.TestCase):
         manager.open_resource.assert_not_called()
         manager.close.assert_not_called()
 
-    def test_virtual_connection_rejects_removed_reset_and_conflicts(self):
+    def test_virtual_connection_rejects_protocol_conflicts(self):
         driver = VirtualDP800()
         for kwargs in (
-            {"reset": False},
             {"encoding": "utf-16"},
             {"read_termination": None},
         ):
