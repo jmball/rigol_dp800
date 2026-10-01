@@ -26,6 +26,8 @@ PROTOCOL_RESOURCE_SETTINGS: Final = MappingProxyType(
     }
 )
 
+NOT_CONNECTED_MESSAGE: Final = "Instrument is not connected."
+
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
@@ -43,13 +45,13 @@ class dp800:
     def _write(self, command: str) -> int:
         """Write a command, preserving the VISA return value and exceptions."""
         if self._instr is None:
-            raise RuntimeError("Instrument is not connected.")
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
         return self._instr.write(command)
 
     def _query(self, command: str) -> str:
         """Query a response, preserving VISA exceptions."""
         if self._instr is None:
-            raise RuntimeError("Instrument is not connected.")
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
         return self._instr.query(command)
 
     def connect(
