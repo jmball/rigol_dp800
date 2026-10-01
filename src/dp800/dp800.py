@@ -76,8 +76,8 @@ class dp800:
             managers; their lifecycle is handled by PyVISA or the caller.
         resource_kwargs : dict
             VISA opening options (access_mode, open_timeout, resource_pyclass)
-            and resource attributes such as timeout. Attributes are applied
-            after opening so failures can close the resource. This driver uses
+            and resource attributes such as timeout, passed directly to
+            PyVISA for validation and configuration. This driver uses
             ASCII encoding and LF ("\\n") read/write termination. Conflicting
             values for these driver-owned attributes emit a warning and are
             ignored in favor of the constants. Other attributes use VISA
@@ -96,7 +96,9 @@ class dp800:
         Notes
         -----
         Remote mode and the identity query must succeed before _instr is assigned.
-        On failure the resource is closed and the instance stays disconnected.
+        The instance stays disconnected on failure. PyVISA handles cleanup if
+        open_resource() raises; the driver closes the returned resource if
+        subsequent initialization fails.
         No reset, voltage/current setting, or output-enable command is sent.
         PyVISA can reuse a manager for the same backend. This driver closes only
         its instrument resource. The PyVISA resource retains its manager for
@@ -112,28 +114,14 @@ class dp800:
                     stacklevel=2,
                 )
         resource_kwargs.update(PROTOCOL_RESOURCE_SETTINGS)
-        opening_options = {
-            key: resource_kwargs.pop(key)
-            for key in ("access_mode", "open_timeout", "resource_pyclass")
-            if key in resource_kwargs
-        }
         manager = (
             pyvisa.ResourceManager() if resource_manager is None else resource_manager
         )
         resource: Resource | None = None
         try:
-            resource = manager.open_resource(resource_name, **opening_options)
+            resource = manager.open_resource(resource_name, **resource_kwargs)
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
-            for key, value in resource_kwargs.items():
-                # Attributes cannot replace I/O methods or bypass protocol settings.
-                if (
-                    key.startswith("_")
-                    or not hasattr(resource, key)
-                    or callable(getattr(resource, key))
-                ):
-                    raise ValueError(f"{key!r} is not a valid resource attribute.")
-                setattr(resource, key, value)
             resource.write(":SYST:REM")
             identity = resource.query("*IDN?")
             logger.info("%s connected!", identity)

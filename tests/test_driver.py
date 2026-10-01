@@ -31,14 +31,8 @@ class FakeResource(MessageBasedResource):
         self.write_errors = {}
         self.query_error = None
         self.close_error = None
-        self.fail_setting = None
         self.closed = 0
         self.on_io = lambda: None
-
-    def __setattr__(self, name, value):
-        if name == getattr(self, "fail_setting", None):
-            raise ValueError("Configuration failed")
-        object.__setattr__(self, name, value)
 
     def write(self, command):
         self.on_io()
@@ -66,6 +60,14 @@ class ConnectionTests(unittest.TestCase):
         self.resource = FakeResource()
         self.manager = MagicMock(spec=pyvisa.ResourceManager)
         self.manager.open_resource.return_value = self.resource
+        self.manager.open_resource.side_effect = self.open_resource
+
+    def open_resource(self, resource_name, **kwargs):
+        resource = self.manager.open_resource.return_value
+        for key, value in kwargs.items():
+            if key not in ("access_mode", "open_timeout", "resource_pyclass"):
+                setattr(resource, key, value)
+        return resource
 
     def connect(self, **kwargs):
         self.driver.connect(
@@ -117,7 +119,13 @@ class ConnectionTests(unittest.TestCase):
         self.resource.on_io = check_initialization
         self.connect(timeout=500, query_delay=0.1, open_timeout=250)
         self.manager.open_resource.assert_called_once_with(
-            "TCPIP::example::INSTR", open_timeout=250
+            "TCPIP::example::INSTR",
+            timeout=500,
+            query_delay=0.1,
+            open_timeout=250,
+            encoding="ascii",
+            read_termination="\n",
+            write_termination="\n",
         )
         self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
         self.assertEqual(self.resource.query_delay, 0.1)
@@ -145,7 +153,10 @@ class ConnectionTests(unittest.TestCase):
                 self.assertIn(f"driver owns {next(iter(kwargs))}", str(emitted.warning))
                 self.assertIn("will be ignored", str(emitted.warning))
                 self.manager.open_resource.assert_called_once_with(
-                    "TCPIP::example::INSTR"
+                    "TCPIP::example::INSTR",
+                    encoding="ascii",
+                    read_termination="\n",
+                    write_termination="\n",
                 )
                 self.assertIs(self.driver._instr, self.resource)
                 self.assertEqual(self.resource.encoding, "ascii")
@@ -218,15 +229,13 @@ class ConnectionTests(unittest.TestCase):
                 self.manager.close.assert_not_called()
 
     def test_initialization_failures_close_resource_and_allow_retry(self):
-        for stage in ("configure", "remote", "identity", "interrupt"):
+        for stage in ("remote", "identity", "interrupt"):
             with self.subTest(stage=stage):
                 self.setUp()
                 error = (
                     KeyboardInterrupt() if stage == "interrupt" else ValueError(stage)
                 )
-                if stage == "configure":
-                    self.resource.fail_setting = "timeout"
-                elif stage == "remote":
+                if stage == "remote":
                     self.resource.write_errors[":SYST:REM"] = error
                 else:
                     self.resource.query_error = error
@@ -260,18 +269,25 @@ class ConnectionTests(unittest.TestCase):
         resource.close.assert_called_once_with()
         self.assertIsNone(self.driver._instr)
 
-    def test_unknown_private_and_method_attributes_are_rejected_with_cleanup(self):
-        for kwargs in (
-            {"unknown_setting": 1},
-            {"_encoding": "utf-16"},
-            {"write": None},
-        ):
-            with self.subTest(kwargs=kwargs):
-                self.setUp()
-                with self.assertRaises(ValueError):
-                    self.connect(**kwargs)
-                self.assertEqual(self.resource.closed, 1)
-                self.assertIsNone(self.driver._instr)
+    def test_resource_kwargs_are_forwarded_without_driver_validation(self):
+        self.manager.open_resource.side_effect = None
+        kwargs = {
+            "access_mode": pyvisa.constants.AccessModes.exclusive_lock,
+            "open_timeout": 250,
+            "resource_pyclass": FakeResource,
+            "unknown_setting": 1,
+            "_encoding": "utf-16",
+            "write": None,
+        }
+        self.connect(**kwargs)
+        self.manager.open_resource.assert_called_once_with(
+            "TCPIP::example::INSTR",
+            **kwargs,
+            encoding="ascii",
+            read_termination="\n",
+            write_termination="\n",
+        )
+        self.assertIs(self.driver._instr, self.resource)
 
     def test_disconnect_attempts_all_commands_and_closes_after_io_failure(self):
         self.connect()

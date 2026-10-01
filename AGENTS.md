@@ -84,7 +84,10 @@ Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.
 Reset is an explicit caller operation.
 Connecting twice raises until disconnect.
-Initialization failures close the resource. PyVISA resources retain their
+Opening options and resource attributes are passed directly to PyVISA for
+validation and configuration. PyVISA handles cleanup when open_resource()
+raises; failures after it returns close the resource explicitly.
+PyVISA resources retain their
 managers for the connection's lifetime; the driver keeps no separate manager
 attribute and never explicitly closes managers. Injected managers stay
 caller-owned, and default managers are obtained lazily from PyVISA.
