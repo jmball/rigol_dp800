@@ -80,8 +80,8 @@ Framing values are module-level constants shared with the virtual driver, and
 conflicting settings are rejected. Reset is an explicit caller operation.
 Connecting twice raises until disconnect.
 Initialization failures close the resource. Managers are retained for the
-connection's lifetime; injected managers stay caller-owned, while default
-managers are created lazily and closed by the driver.
+connection's lifetime and released without explicitly closing them; injected
+managers stay caller-owned, and default managers are obtained lazily from PyVISA.
 `disconnect()` attempts to disable outputs on channels 1, 2, and 3 and return to
 local mode, then closes the resource and clears `self.instr` even on failure.
 Repeated disconnect calls are harmless. Account for these side effects

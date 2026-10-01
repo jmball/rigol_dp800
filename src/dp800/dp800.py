@@ -43,23 +43,12 @@ class dp800:
     def __init__(self) -> None:
         self.instr: MessageBasedResource | None = None
         self._resource_manager: pyvisa.ResourceManager | None = None
-        self._owns_resource_manager = False
 
     def _get_instr(self) -> MessageBasedResource:
         """Return the connected resource or raise before attempting I/O."""
         if self.instr is None:
             raise RuntimeError("Instrument is not connected.")
         return self.instr
-
-    @staticmethod
-    def _close_after_failure(resource: Resource | pyvisa.ResourceManager) -> None:
-        """Attempt cleanup without replacing the initialization exception."""
-        try:
-            resource.close()
-        except Exception:
-            logger.warning(
-                "Failed to close VISA resource during cleanup.", exc_info=True
-            )
 
     def connect(
         self,
@@ -79,7 +68,8 @@ class dp800:
         resource_manager : pyvisa.ResourceManager, optional
             Manager to use and retain for this connection. A supplied manager
             remains caller-owned and is never closed by this driver. Otherwise,
-            a manager is created lazily and closed on failure or disconnect.
+            a manager is obtained lazily. The driver never explicitly closes
+            managers; their lifecycle is handled by PyVISA or the caller.
         resource_kwargs : dict
             VISA opening options (access_mode, open_timeout, resource_pyclass)
             and resource attributes such as timeout. Attributes are applied
@@ -104,9 +94,8 @@ class dp800:
         Remote mode and the identity query must succeed before instr is assigned.
         On failure the resource is closed and the instance stays disconnected.
         No reset, voltage/current setting, or output-enable command is sent.
-        PyVISA can reuse a manager for the same backend. When sharing a backend
-        with other connections, supply a caller-owned manager so disconnecting
-        this driver does not close their shared manager.
+        PyVISA can reuse a manager for the same backend. This driver closes only
+        its instrument resource and releases its reference to the manager.
         """
         if self.instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
@@ -119,7 +108,6 @@ class dp800:
             for key in ("access_mode", "open_timeout", "resource_pyclass")
             if key in resource_kwargs
         }
-        owns_manager = resource_manager is None
         manager = (
             pyvisa.ResourceManager() if resource_manager is None else resource_manager
         )
@@ -142,12 +130,15 @@ class dp800:
             logger.info("%s connected!", identity)
         except BaseException:
             if resource is not None:
-                self._close_after_failure(resource)
-            if owns_manager:
-                self._close_after_failure(manager)
+                try:
+                    resource.close()
+                except Exception:
+                    logger.warning(
+                        "Failed to close instrument during initialization cleanup.",
+                        exc_info=True,
+                    )
             raise
         self._resource_manager = manager
-        self._owns_resource_manager = owns_manager
         self.instr = resource
 
     def disconnect(self) -> None:
@@ -155,15 +146,13 @@ class dp800:
 
         Already disconnected instances are a no-op. All three output-disable
         commands and local mode are attempted even if one fails. The resource
-        and any driver-owned manager are then closed, and instr is cleared even
-        if cleanup fails. Caller-owned managers remain open. The first error is
+        is then closed, and instr is cleared even if cleanup fails. The retained
+        manager reference is released without closing it. The first error is
         re-raised after cleanup; subsequent errors are logged.
         """
         resource = self.instr
         if resource is None:
             return
-        manager = self._resource_manager
-        owns_manager = self._owns_resource_manager
         error: Exception | None = None
         try:
             for command in (
@@ -182,7 +171,6 @@ class dp800:
         finally:
             self.instr = None
             self._resource_manager = None
-            self._owns_resource_manager = False
             try:
                 resource.close()
             except Exception as exc:
@@ -190,17 +178,6 @@ class dp800:
                     error = exc
                 else:
                     logger.warning("Failed to close instrument.", exc_info=True)
-            finally:
-                if owns_manager and manager is not None:
-                    try:
-                        manager.close()
-                    except Exception as exc:
-                        if error is None:
-                            error = exc
-                        else:
-                            logger.warning(
-                                "Failed to close resource manager.", exc_info=True
-                            )
         if error is not None:
             raise error
 

@@ -158,7 +158,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertIs(self.driver.instr, replacement)
         self.assertEqual(self.manager.open_resource.call_count, 2)
 
-    def test_owned_manager_is_created_lazily_and_closed(self):
+    def test_default_manager_is_obtained_lazily_and_not_closed(self):
         with patch.object(
             pyvisa, "ResourceManager", return_value=self.manager
         ) as factory:
@@ -167,25 +167,25 @@ class ConnectionTests(unittest.TestCase):
             driver.connect("TCPIP::example::INSTR")
             factory.assert_called_once_with()
             driver.disconnect()
-        self.manager.close.assert_called_once_with()
+        self.manager.close.assert_not_called()
 
-    def test_open_failure_cleans_up_only_owned_manager(self):
+    def test_open_failure_never_closes_manager(self):
         error = OSError("Open failed")
         self.manager.open_resource.side_effect = error
-        for owned in (False, True):
+        for injected in (False, True):
             with (
-                self.subTest(owned=owned),
+                self.subTest(injected=injected),
                 patch.object(pyvisa, "ResourceManager", return_value=self.manager),
             ):
                 with self.assertRaises(OSError) as raised:
-                    if owned:
-                        self.driver.connect("TCPIP::example::INSTR")
-                    else:
+                    if injected:
                         self.connect()
+                    else:
+                        self.driver.connect("TCPIP::example::INSTR")
                 self.assertIs(raised.exception, error)
                 self.assertIsNone(self.driver.instr)
                 self.assertEqual(self.resource.closed, 0)
-                self.assertEqual(self.manager.close.call_count, int(owned))
+                self.manager.close.assert_not_called()
 
     def test_initialization_failures_close_resource_and_allow_retry(self):
         for stage in ("configure", "remote", "identity", "interrupt"):
@@ -211,18 +211,17 @@ class ConnectionTests(unittest.TestCase):
                 self.connect()
                 self.assertIs(self.driver.instr, replacement)
 
-    def test_failed_initialization_closes_owned_manager_despite_close_errors(self):
+    def test_failed_initialization_preserves_error_when_resource_close_fails(self):
         error = ValueError("Identity failed")
         self.resource.query_error = error
         self.resource.close_error = OSError("Resource close failed")
-        self.manager.close.side_effect = OSError("Manager close failed")
         with patch.object(pyvisa, "ResourceManager", return_value=self.manager):
             with self.assertLogs("dp800.dp800", level="WARNING"):
                 with self.assertRaises(ValueError) as raised:
                     self.driver.connect("TCPIP::example::INSTR")
         self.assertIs(raised.exception, error)
         self.assertEqual(self.resource.closed, 1)
-        self.manager.close.assert_called_once_with()
+        self.manager.close.assert_not_called()
 
     def test_non_message_resource_is_closed(self):
         resource = MagicMock(spec=Resource)
@@ -262,13 +261,13 @@ class ConnectionTests(unittest.TestCase):
         self.manager.close.assert_not_called()
         self.driver.disconnect()
 
-    def test_resource_close_failure_still_closes_owned_manager_and_clears_state(self):
+    def test_resource_close_failure_clears_state_without_closing_manager(self):
         with patch.object(pyvisa, "ResourceManager", return_value=self.manager):
             self.driver.connect("TCPIP::example::INSTR")
         self.resource.close_error = OSError("Close failed")
         with self.assertRaises(OSError):
             self.driver.disconnect()
-        self.manager.close.assert_called_once_with()
+        self.manager.close.assert_not_called()
         self.assertIsNone(self.driver.instr)
         self.assertIsNone(self.driver._resource_manager)
 
