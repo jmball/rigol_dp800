@@ -565,6 +565,16 @@ class ConnectionTests(unittest.TestCase):
                     with self.assertRaises(AttributeError):
                         setattr(driver, name, None)
 
+    def test_output_enable_queries_state_for_implicit_and_explicit_channels(self):
+        self.connect()
+        for channel in (None, 1, 2, 3):
+            command = ":OUTP?" if channel is None else f":OUTP? CH{channel}"
+            for response, expected in (("ON", True), ("OFF", False)):
+                with self.subTest(channel=channel, response=response):
+                    self.resource.responses[command] = response
+                    self.assertIs(self.driver.get_output_enable(channel), expected)
+                    self.assertEqual(self.resource.commands[-1], command)
+
     def test_existing_response_types_and_coupling_list(self):
         self.connect()
         self.resource.responses.update(

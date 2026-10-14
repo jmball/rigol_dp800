@@ -1314,7 +1314,7 @@ class dp800:
         enable : bool
             Enabled/disabled state of the channel output.
         """
-        # cmd = ":OUTP"
+        # cmd = ":OUTP?"
         # if channel is not None:
         #     cmd += f" CH{channel}"
         # enable = self._instr.query(cmd)
