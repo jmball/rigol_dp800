@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Hardware-free coverage of physical channel views and discovery."""
+"""Hardware-free coverage of channel views and instrument error propagation."""
 
 import unittest
 from unittest.mock import MagicMock
 
 import pyvisa
 
-from dp800 import DP800Channel, DP800
+from dp800 import DP800Channel, DP800, InstrumentError
 from virtual_dp800 import DP800 as VirtualDP800
 
 from test_driver import FakeResource
@@ -24,42 +24,21 @@ class ChannelTests(unittest.TestCase):
     def connect(self):
         self.supply.connect("TCPIP::example::INSTR", resource_manager=self.manager)
 
-    def test_discovery_is_lazy_cached_and_exposes_only_physical_channels(self):
-        for model, count in (
-            ("DP831", 3),
-            ("DP832", 3),
-            ("DP821", 2),
-            ("DP822", 2),
-            ("DP811", 1),
-            ("DP813", 1),
-        ):
-            for suffix in ("", "A"):
-                with self.subTest(model=model + suffix):
-                    self.supply.disconnect()
-                    self.resource.commands.clear()
-                    self.resource.responses["*IDN?"] = (
-                        f"RIGOL,{model}{suffix},serial,version"
-                    )
-                    self.connect()
-                    self.assertEqual(self.resource.commands, [":SYST:REM"])
-                    self.assertEqual(self.supply.channel_count, count)
-                    self.assertEqual(self.supply.channel_count, count)
-                    self.assertEqual(
-                        list(self.supply.channels), list(range(1, count + 1))
-                    )
-                    self.assertEqual(self.resource.commands.count("*IDN?"), 1)
-                    with self.assertRaises(KeyError):
-                        self.supply.channels[count + 1]
+    def test_channel_views_are_always_one_to_three_without_identity_queries(self):
+        self.assertEqual(list(self.supply.channels), [1, 2, 3])
+        self.assertEqual(self.resource.commands, [":SYST:REM"])
+        self.supply.disconnect()
+        before = list(self.resource.io_events)
+        self.assertEqual(list(self.supply.channels), [1, 2, 3])
+        self.assertEqual(self.resource.io_events, before)
+        self.assertFalse(hasattr(self.supply, "channel_count"))
+        with self.assertRaises(KeyError):
+            self.supply.channels[4]
 
-    def test_discovery_failure_does_not_cache_unknown_or_malformed_models(self):
-        for identity in ("broken", "RIGOL,DP999,serial,version"):
-            with self.subTest(identity=identity):
-                self.resource.responses["*IDN?"] = identity
-                with self.assertRaises(ValueError):
-                    self.supply.channels
-                self.assertIsNone(self.supply._channel_count)
-        self.resource.responses["*IDN?"] = "RIGOL, DP832A ,serial,version"
-        self.assertEqual(self.supply.channel_count, 3)
+    def test_channels_do_not_depend_on_identity_or_model(self):
+        self.resource.responses["*IDN?"] = "unrecognized instrument"
+        self.assertEqual(list(self.supply.channels), [1, 2, 3])
+        self.assertNotIn("*IDN?", self.resource.commands)
 
     def test_channel_objects_and_numbers_are_stable_and_read_only(self):
         channel = self.supply.channels[2]
@@ -140,46 +119,31 @@ class ChannelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Expected one measurement"):
             channel.measured_voltage
 
-    def test_channel_uses_new_connection_and_rechecks_availability(self):
+    def test_channel_survives_reconnection_and_device_checks_availability(self):
         channel1 = self.supply.channels[1]
         channel3 = self.supply.channels[3]
         self.supply.disconnect()
-        for operation in (
-            lambda: channel1.voltage,
-            lambda: channel1.measure("ALL"),
-            lambda: self.supply.channels,
-            lambda: self.supply.channel_count,
-        ):
+        for operation in (lambda: channel1.voltage, lambda: channel1.measure("ALL")):
             with self.assertRaisesRegex(RuntimeError, "not connected"):
                 operation()
         replacement = FakeResource()
         replacement.responses["*IDN?"] = "RIGOL,DP811,serial,version"
         replacement.responses[":SOUR1:VOLT?"] = "3.3"
+        replacement.errors_after_write[":SOUR3:VOLT 5.0"] = ['-222,"Invalid channel"']
         self.manager.open_resource.return_value = replacement
         self.connect()
-        self.assertEqual(replacement.commands, [":SYST:REM"])
         self.assertEqual(channel1.voltage, 3.3)
         self.assertIs(self.supply.channels[1], channel1)
-        self.assertEqual(list(self.supply.channels), [1])
-        with self.assertRaises(ValueError):
-            channel3.voltage = 5.0
-        self.assertNotIn(":SOUR3:VOLT 5.0", replacement.commands)
-        self.supply.disconnect()
-        replacement.responses["*IDN?"] = "RIGOL,DP832A,serial,version"
-        self.connect()
         self.assertIs(self.supply.channels[3], channel3)
-        channel3.voltage = 5.0
-        self.assertEqual(replacement.commands[-1], ":SOUR3:VOLT 5.0")
+        with self.assertRaises(InstrumentError) as raised:
+            channel3.voltage = 5.0
+        self.assertEqual(raised.exception.errors, ((-222, "Invalid channel"),))
+        self.assertIn(":SOUR3:VOLT 5.0", replacement.commands)
+        self.assertNotIn("*IDN?", replacement.commands)
 
-    def test_discovery_and_channel_io_propagate_errors(self):
-        error = OSError("Query failed")
-        self.resource.query_error = error
-        with self.assertRaises(OSError) as raised:
-            self.supply.channels
-        self.assertIs(raised.exception, error)
-        self.assertIsNone(self.supply._channel_count)
-        self.resource.query_error = None
+    def test_channel_io_propagates_transport_errors(self):
         channel = self.supply.channels[1]
+        error = OSError("Write failed")
         self.resource.write_errors[":SOUR1:VOLT 5.0"] = error
         with self.assertRaises(OSError) as raised:
             channel.voltage = 5.0
@@ -191,7 +155,6 @@ class ChannelTests(unittest.TestCase):
 
     def test_virtual_channels_share_class_and_preserve_placeholders(self):
         virtual = VirtualDP800()
-        self.assertEqual(virtual.channel_count, 3)
         self.assertEqual(list(virtual.channels), [1, 2, 3])
         channel = virtual.channels[2]
         self.assertIsInstance(channel, DP800Channel)
@@ -286,12 +249,12 @@ class ChannelTests(unittest.TestCase):
                     getattr(channel, name)()
                 self.assertIs(raised.exception, error)
                 self.resource.write_errors.clear()
-        self.assertEqual(self.resource.commands.count("*IDN?"), 1)
+        self.assertEqual(self.resource.commands.count("*IDN?"), 0)
         self.assertFalse(
             any(command.startswith(":INST") for command in self.resource.commands)
         )
 
-    def test_all_new_operations_recheck_availability_after_reconnection(self):
+    def test_new_channel_operations_fail_while_disconnected(self):
         channel = self.supply.channels[3]
         getters = (
             "output_mode",
@@ -312,22 +275,17 @@ class ChannelTests(unittest.TestCase):
         )
         actions = ("clear_ocp_label", "clear_ovp_label")
         self.supply.disconnect()
-        for connected, error_type in ((False, RuntimeError), (True, ValueError)):
-            with self.subTest(connected=connected):
-                if connected:
-                    self.resource.responses["*IDN?"] = "RIGOL,DP811,serial,version"
-                    self.connect()
-                self.resource.commands.clear()
-                for name in getters:
-                    with self.assertRaises(error_type):
-                        getattr(channel, name)
-                for name, value in setters:
-                    with self.assertRaises(error_type):
-                        setattr(channel, name, value)
-                for name in actions:
-                    with self.assertRaises(error_type):
-                        getattr(channel, name)()
-                self.assertEqual(self.resource.commands, ["*IDN?"] if connected else [])
+        self.resource.commands.clear()
+        for name in getters:
+            with self.assertRaises(RuntimeError):
+                getattr(channel, name)
+        for name, value in setters:
+            with self.assertRaises(RuntimeError):
+                setattr(channel, name, value)
+        for name in actions:
+            with self.assertRaises(RuntimeError):
+                getattr(channel, name)()
+        self.assertEqual(self.resource.commands, [])
 
     def test_virtual_output_and_protection_properties_preserve_placeholders(self):
         channel = VirtualDP800().channels[2]

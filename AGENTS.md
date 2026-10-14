@@ -14,6 +14,8 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `src/dp800/channel.py`: DP800Channel views shared by both drivers. Channel
   objects delegate setpoint/output commands and measurements with an explicit
   channel number. They share the parent connection and expose no lifecycle API.
+- `src/dp800/errors.py`: InstrumentError and direct error-queue diagnostics used
+  by hardware connection initialization and I/O wrappers.
 - Both packages export a `DP800` class through their `__init__.py` and
   obtain `__version__` through `importlib.metadata` for the `rigol_dp800`
   distribution, with a `0.0.0` fallback.
@@ -25,7 +27,8 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   Keep metadata and source SPDX identifiers consistent. Leave license details and
   Python compatibility requirements out of the README.
 
-`tests/test_driver.py` contains hardware-free unittest regression tests. There is
+`tests/` contains hardware-free unittest regression tests for driver behavior,
+channel views, and error-queue diagnostics. There is
 no CI configuration or configured formatter, linter, or type checker.
 
 ## Making changes
@@ -91,29 +94,36 @@ panel keylock are also read/write properties. Self-test results and temperature
 test results are read-only properties. Assigning selected_channel changes the
 channel used by subsequent commands that omit a channel argument. Delay cycles,
 channel-specific settings, and unfinished placeholders remain methods.
-The read-only channels mapping uses one-based physical channel numbers and stable
-DP800Channel instances. Hardware channel_count discovers the model through
-identity on first access per connection, using the Rigol data sheet's counts.
-Unknown models raise ValueError. Disconnect clears the cached count; retained
-channels check availability before I/O after reconnect. This is the exception to
-fresh-I/O properties: channel_count caches metadata, and channel performs no I/O.
+The read-only channels mapping contains stable DP800Channel views for numbers
+1 - 3. Constructor checks only integer type and these bounds; there is no model
+discovery, channel_count, or per-operation availability validation. The instrument
+enforces actual channel availability. Views survive reconnects and use the
+parent's current connection. Accessing channels or channel performs no I/O.
 Channel measured_* properties return floats; measure() preserves parent response
 types, including the virtual driver's 0.0 placeholder for ALL.
 Channel views also delegate output mode, remote sensing, OCP/OVP enable states,
 thresholds, alarms, and alarm-label clearing. Preserve model/channel restrictions
-documented by the parent driver. Validate channel availability before operations:
-the parent can reconnect to a model with fewer channels while channel objects
-remain alive. These checks use cached channel_count within a connection.
+documented by the parent driver, while leaving enforcement to the instrument.
 
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-and switches to remote mode before publishing `self._instr`. Identity queries
+drains stale error entries, and switches to remote mode with error checking
+before publishing `self._instr`. Identity queries
 and connection logging are caller responsibilities; read identity explicitly
 when identification is needed.
 Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.
 Reset is an explicit caller operation.
+Each successful write and query response is followed by direct error-queue
+draining. Nonzero codes raise InstrumentError with the command and immutable
+code/message entries. A query VISA timeout triggers best-effort diagnostics with
+a 500 ms budget, zero query delay, and restoration of the resource timeout.
+Instrument errors are chained from the original timeout; empty, malformed, or
+failed diagnostics preserve it. No automatic retry or stream recovery occurs.
+Diagnostics bypass the wrappers to avoid recursion. get_error() directly reads
+one queue entry, while the virtual equivalent returns (0, "No error"). Queue
+draining is capped at 100 reads. Mock both normal and error-query responses.
 Connecting twice raises until disconnect.
 Opening options and resource attributes are passed directly to PyVISA for
 validation and configuration. PyVISA handles cleanup when open_resource()

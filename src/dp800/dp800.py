@@ -16,22 +16,7 @@ import pyvisa
 from pyvisa.resources import MessageBasedResource, Resource
 
 from .channel import DP800Channel
-
-# Physical outputs (not output ranges), from the Rigol DP800 data sheet.
-_MODEL_CHANNEL_COUNTS: Final = MappingProxyType(
-    {
-        model + suffix: count
-        for model, count in (
-            ("DP831", 3),
-            ("DP832", 3),
-            ("DP821", 2),
-            ("DP822", 2),
-            ("DP811", 1),
-            ("DP813", 1),
-        )
-        for suffix in ("", "A")
-    }
-)
+from .errors import InstrumentError, _check_errors, _drain_errors, _read_error
 
 # Fixed SCPI framing used by the driver, shared by all connections.
 ENCODING: Final = "ascii"
@@ -63,8 +48,7 @@ class DP800:
     def __init__(self) -> None:
         """Initialize a disconnected DP800 driver."""
         self._instr: MessageBasedResource | None = None
-        self._channel_count: int | None = None
-        self._channels: dict[int, DP800Channel] = {}
+        self._channels = {channel: DP800Channel(self, channel) for channel in (1, 2, 3)}
 
     def __enter__(self) -> "DP800":
         """Return this instance without opening a connection.
@@ -106,7 +90,8 @@ class DP800:
     ) -> None:
         """Open and initialize a connection without resetting the instrument.
 
-        Remote mode must succeed before _instr is assigned. Read identity
+        Stale errors are drained before initialization. Remote mode and its
+        error-queue check must succeed before _instr is assigned. Read identity
         explicitly if identification is required; connection logging is left
         to the caller.
         The instance stays disconnected on failure. PyVISA handles cleanup if
@@ -165,7 +150,9 @@ class DP800:
             resource = manager.open_resource(resource_name, **resource_kwargs)
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
+            _drain_errors(resource)
             resource.write(":SYST:REM")
+            _check_errors(resource, ":SYST:REM")
         except BaseException:
             if resource is not None:
                 try:
@@ -187,7 +174,6 @@ class DP800:
         does not explicitly close the manager. The first error is
         re-raised after cleanup; subsequent errors are logged.
         """
-        self._channel_count = None
         resource = self._instr
         if resource is None:
             return
@@ -222,60 +208,30 @@ class DP800:
         if error is not None:
             raise error
 
-    # --- Channel discovery ---
-
-    @property
-    def channel_count(self) -> int:
-        """Number of physical outputs, discovered on demand from identity.
-
-        The first access per connection queries identity. The result is cached
-        until disconnect; connect() does not query identity. Unknown models
-        or malformed identity responses raise ValueError.
-
-        Returns
-        -------
-        count : int
-            One, two, or three outputs for a supported DP800 model. Dual-range
-            single-output models have one channel.
-        """
-        if self._instr is None:
-            raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        if self._channel_count is None:
-            identity = self.identity
-            if len(identity) < 2:
-                raise ValueError(f"Invalid instrument identity: {identity!r}.")
-            model = identity[1].strip().upper()
-            try:
-                self._channel_count = _MODEL_CHANNEL_COUNTS[model]
-            except KeyError:
-                raise ValueError(f"Unsupported DP800 model: {model!r}.") from None
-        return self._channel_count
+    # --- Channel views ---
 
     @property
     def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only channel mapping keyed by one-based physical numbers.
+        """Read-only views for channel numbers 1 - 3, without model discovery.
 
-        Access discovers channel_count if needed. Channel objects are reused
-        across accesses and reconnects. Retained objects validate availability
-        against the current connection before performing I/O.
+        Objects are stable across reconnects and always use the parent's current
+        connection. Their presence does not guarantee the instrument supports
+        that channel; unsupported commands are reported through the error queue.
 
         Returns
         -------
         value : Mapping[int, DP800Channel]
-            Channel views keyed by one-based physical channel numbers.
+            Channel views keyed by one-based channel numbers.
         """
-        count = self.channel_count
-        for channel in range(1, count + 1):
-            if channel not in self._channels:
-                self._channels[channel] = DP800Channel(self, channel)
-        return MappingProxyType(
-            {channel: self._channels[channel] for channel in range(1, count + 1)}
-        )
+        return MappingProxyType(self._channels)
 
     # --- VISA I/O ---
 
     def _write(self, command: str) -> int:
-        """Write a command, preserving the VISA return value and exceptions.
+        """Write a command and raise any errors reported by the instrument.
+
+        A successful transport write is followed by error-queue draining. The
+        command may have executed even if the subsequent diagnostic query fails.
 
         Parameters
         ----------
@@ -289,10 +245,17 @@ class DP800:
         """
         if self._instr is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        return self._instr.write(command)
+        count = self._instr.write(command)
+        _check_errors(self._instr, command)
+        return count
 
     def _query(self, command: str) -> str:
-        """Query a response, preserving VISA exceptions.
+        """Read a query response, then check the instrument error queue.
+
+        A VISA timeout triggers best-effort error diagnostics with a 500 ms
+        total deadline. Instrument errors are chained from the original timeout.
+        Empty, malformed, or failed diagnostics preserve the original exception.
+        This recovery attempt does not guarantee response synchronization.
 
         Parameters
         ----------
@@ -306,7 +269,20 @@ class DP800:
         """
         if self._instr is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        return self._instr.query(command)
+        try:
+            response = self._instr.query(command)
+        except pyvisa.errors.VisaIOError as original:
+            if original.error_code != pyvisa.constants.StatusCode.error_timeout:
+                raise
+            try:
+                errors = _drain_errors(self._instr, timeout_ms=500)
+            except Exception:
+                errors = []
+            if errors:
+                raise InstrumentError(command, errors) from original
+            raise
+        _check_errors(self._instr, command)
+        return response
 
     # --- ANALyser commands ---
 
@@ -1697,22 +1673,20 @@ class DP800:
         """
         warnings.warn("Not implemented.")
 
-    def get_error(self) -> None:
-        """Query and clear error messages in the error queue.
+    def get_error(self) -> tuple[int, str]:
+        """Read and remove one entry from the instrument's error queue.
 
-        This operation is not implemented. A warning is emitted and no
-        instrument command is sent.
+        This direct diagnostic query does not trigger automatic queue draining.
+        Normal commands already drain and raise queued errors after completion.
 
         Returns
         -------
-        error : list
-            Error code and error message.
+        error : tuple of int and str
+            Error code and message. Code zero indicates an empty queue.
         """
-        # code, msg = self._query(":SYST:ERR").split(",")
-        # code = int(code)
-        # if code != 0:
-        #     warnings.warn(f"Instrument error: {code}, {msg}")
-        warnings.warn("Not implemented.")
+        if self._instr is None:
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        return _read_error(self._instr)
 
     def set_key_keylock(self) -> None:
         """Set the individual front-panel key lock.

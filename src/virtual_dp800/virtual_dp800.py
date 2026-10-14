@@ -107,18 +107,7 @@ class DP800:
         """Disconnect virtually; repeated calls are harmless."""
         self._connected = False
 
-    # --- Channel discovery ---
-
-    @property
-    def channel_count(self) -> int:
-        """Return three placeholder channels without hardware I/O.
-
-        Returns
-        -------
-        value : int
-            Number of physical output channels.
-        """
-        return 3
+    # --- Channel views ---
 
     @property
     def channels(self) -> Mapping[int, DP800Channel]:
@@ -1781,19 +1770,15 @@ class DP800:
         """
         pass
 
-    def get_error(self) -> list[str]:
-        """Query and clear error messages in the error queue.
+    def get_error(self) -> tuple[int, str]:
+        """Return an empty error-queue placeholder without hardware I/O.
 
         Returns
         -------
-        error : list
-            Error code and error message.
+        error : tuple of int and str
+            Zero and 'No error'; the virtual driver has no instrument queue.
         """
-        # code, msg = self._instr.query(":SYST:ERR").split(",")
-        # code = int(code)
-        # if code != 0:
-        #     warnings.warn(f"Instrument error: {code}, {msg}")
-        return []
+        return 0, "No error"
 
     def set_key_keylock(self) -> None:
         """Set the individual front-panel key lock.

@@ -17,8 +17,9 @@ class DP800Channel:
     Prefer supply.channels[channel] to obtain a stable channel object.
     All hardware settings and measurements perform VISA I/O. Each operation
     addresses this channel explicitly without changing selected_channel.
-    Objects remain usable after reconnecting the parent, provided the new
-    instrument supports their channel number.
+    Objects remain usable after reconnecting the parent and address its current
+    instrument. Channel numbers are limited to 1 - 3; support for an individual
+    channel is checked by the instrument, not this view.
 
     Parameters
     ----------
@@ -40,9 +41,10 @@ class DP800Channel:
         """
         if isinstance(channel, bool) or not isinstance(channel, int):
             raise TypeError("Channel must be an integer.")
+        if not 1 <= channel <= 3:
+            raise ValueError("Channel must be in the range 1 - 3.")
         self._supply = supply
         self._channel = channel
-        self._validate_channel()
 
     @property
     def channel(self) -> int:
@@ -64,7 +66,6 @@ class DP800Channel:
         value : float
             Configured voltage in volts.
         """
-        self._validate_channel()
         return self._supply.get_voltage(channel=self._channel)
 
     @voltage.setter
@@ -79,7 +80,6 @@ class DP800Channel:
         value : float
             Configured voltage in volts.
         """
-        self._validate_channel()
         self._supply.set_voltage(value, channel=self._channel)
 
     @property
@@ -91,7 +91,6 @@ class DP800Channel:
         value : float
             Configured current in amps.
         """
-        self._validate_channel()
         return self._supply.get_current(channel=self._channel)
 
     @current.setter
@@ -106,7 +105,6 @@ class DP800Channel:
         value : float
             Configured current in amps.
         """
-        self._validate_channel()
         self._supply.set_current(value, channel=self._channel)
 
     @property
@@ -118,7 +116,6 @@ class DP800Channel:
         value : bool
             Whether the channel output is enabled.
         """
-        self._validate_channel()
         return self._supply.get_output_enable(channel=self._channel)
 
     @output_enabled.setter
@@ -133,7 +130,6 @@ class DP800Channel:
         enabled : bool
             Whether the channel output should be enabled.
         """
-        self._validate_channel()
         self._supply.set_output_enable(enabled, channel=self._channel)
 
     @property
@@ -146,7 +142,6 @@ class DP800Channel:
             'CV' for constant voltage, 'CC' for constant current, or 'UR' for
             unregulated output. The virtual driver returns an empty string.
         """
-        self._validate_channel()
         return self._supply.get_output_mode(channel=self._channel)
 
     @property
@@ -158,7 +153,6 @@ class DP800Channel:
         enabled : bool
             Whether remote sensing is enabled.
         """
-        self._validate_channel()
         return self._supply.get_output_sense_enable(channel=self._channel)
 
     @sense_enabled.setter
@@ -170,7 +164,6 @@ class DP800Channel:
         enabled : bool
             Whether remote sensing should be enabled.
         """
-        self._validate_channel()
         self._supply.set_output_sense_enable(enabled, channel=self._channel)
 
     @property
@@ -182,7 +175,6 @@ class DP800Channel:
         enabled : bool
             Whether overcurrent protection is enabled.
         """
-        self._validate_channel()
         return self._supply.get_ocp_enable(channel=self._channel)
 
     @ocp_enabled.setter
@@ -194,7 +186,6 @@ class DP800Channel:
         enabled : bool
             Whether overcurrent protection should be enabled.
         """
-        self._validate_channel()
         self._supply.set_ocp_enable(enabled, channel=self._channel)
 
     @property
@@ -206,7 +197,6 @@ class DP800Channel:
         value : float
             Configured overcurrent protection threshold in amps.
         """
-        self._validate_channel()
         return self._supply.get_ocp_value(channel=self._channel)
 
     @ocp_value.setter
@@ -218,7 +208,6 @@ class DP800Channel:
         value : float or {'MIN', 'MAX'}
             Threshold in amps, or the instrument's minimum or maximum value.
         """
-        self._validate_channel()
         self._supply.set_ocp_value(value, channel=self._channel)
 
     @property
@@ -230,12 +219,10 @@ class DP800Channel:
         tripped : bool
             Whether the overcurrent protection alarm is active.
         """
-        self._validate_channel()
         return self._supply.get_ocp(channel=self._channel)
 
     def clear_ocp_label(self) -> None:
         """Clear this channel's overcurrent protection alarm label."""
-        self._validate_channel()
         self._supply.clear_ocp_label(channel=self._channel)
 
     @property
@@ -247,7 +234,6 @@ class DP800Channel:
         enabled : bool
             Whether overvoltage protection is enabled.
         """
-        self._validate_channel()
         return self._supply.get_ovp_enable(channel=self._channel)
 
     @ovp_enabled.setter
@@ -259,7 +245,6 @@ class DP800Channel:
         enabled : bool
             Whether overvoltage protection should be enabled.
         """
-        self._validate_channel()
         self._supply.set_ovp_enable(enabled, channel=self._channel)
 
     @property
@@ -271,7 +256,6 @@ class DP800Channel:
         value : float
             Configured overvoltage protection threshold in volts.
         """
-        self._validate_channel()
         return self._supply.get_ovp_value(channel=self._channel)
 
     @ovp_value.setter
@@ -283,7 +267,6 @@ class DP800Channel:
         value : float or {'MIN', 'MAX'}
             Threshold in volts, or the instrument's minimum or maximum value.
         """
-        self._validate_channel()
         self._supply.set_ovp_value(value, channel=self._channel)
 
     @property
@@ -295,12 +278,10 @@ class DP800Channel:
         tripped : bool
             Whether the overvoltage protection alarm is active.
         """
-        self._validate_channel()
         return self._supply.get_ovp(channel=self._channel)
 
     def clear_ovp_label(self) -> None:
         """Clear this channel's overvoltage protection alarm label."""
-        self._validate_channel()
         self._supply.clear_ovp_label(channel=self._channel)
 
     @property
@@ -353,19 +334,7 @@ class DP800Channel:
             Unconverted response from the parent. Hardware returns strings;
             the virtual driver's existing placeholder returns 0.0.
         """
-        self._validate_channel()
         return self._supply.measure(func, channel=self._channel)
-
-    def _validate_channel(self) -> None:
-        """Check that this physical channel is available on the current supply.
-
-        Reconnecting the parent can change its model while this object remains
-        alive. Within a connection, the parent's channel count is cached.
-        """
-        if not 1 <= self._channel <= self._supply.channel_count:
-            raise ValueError(
-                f"Channel {self._channel} is not available on this supply."
-            )
 
     def _measure_scalar(self, func: Literal["CURR", "POWE", "VOLT"]) -> float:
         """Measure one quantity and convert its response to a float.

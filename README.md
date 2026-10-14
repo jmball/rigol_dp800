@@ -46,16 +46,37 @@ also accept `"MIN"` or `"MAX"`. Call `clear_ocp_label()` or `clear_ovp_label()` 
 clear the corresponding alarm label. Sensing support depends on the model and
 channel.
 
-`channel_count` identifies the model on first access and caches the number of
-physical outputs until disconnect. Accessing `channels` also triggers this
-discovery; `connect()` does not query identity. Channels use one-based indexing,
-and the mapping is read-only. Unknown models raise `ValueError`. Channel objects
-remain stable across reconnects, but reject operations if their channel is no
-longer available. Exiting the context manager disconnects and disables outputs.
+`channels` is a read-only mapping containing stable views for channel numbers
+1–3. Creating and accessing these views performs no I/O or model discovery.
+The instrument determines whether a channel or operation is supported. Channel
+objects survive reconnects and address the parent's current connection; using
+them while disconnected raises `RuntimeError`. Exiting the context manager
+disconnects and attempts to disable all three outputs.
 
 The virtual driver exposes three channels using the same class, with its
 existing fixed placeholder values and no-op setters. Its `measure()` continues
 to return `0.0`, including for `"ALL"`.
+
+## Instrument errors
+
+`connect()` drains stale errors before entering remote mode, then checks remote
+mode for errors. Each successful write and each successfully read query response
+is followed by draining `:SYST:ERR?`. Nonzero entries raise `InstrumentError`,
+which exposes the associated `command` and an `errors` tuple of code/message
+pairs. Checks consume the queue and add communication round trips. A command
+may have executed even if its subsequent error check fails. Queue draining is
+limited to 100 reads.
+
+When a query raises a VISA timeout, the driver attempts error diagnostics with
+a best-effort 500 ms time budget and restores the original resource timeout.
+Reported instrument errors raise `InstrumentError` with the original timeout
+as its cause. Empty, malformed, or failed diagnostics re-raise the original
+timeout. This fallback neither retries the command nor guarantees response
+synchronization: a late original response can interfere with diagnostics, and
+the caller may need to reconnect before continuing.
+
+`get_error()` directly reads one error entry without automatic checking. The
+virtual driver returns `(0, "No error")` and performs no diagnostic I/O.
 
 ## Building distributions
 

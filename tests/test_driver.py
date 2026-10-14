@@ -27,6 +27,13 @@ class FakeResource(MessageBasedResource):
     def __init__(self):
         self._session = None
         self.commands = []
+        self.io_events = []
+        self.error_queries = []
+        self.error_query_delays = []
+        self.queued_errors = []
+        self.diagnostic_error = None
+        self.errors_after_write = {}
+        self.errors_after_query = {}
         self.responses = {"*IDN?": "RIGOL,DP832,serial,version"}
         self.write_errors = {}
         self.query_error = None
@@ -36,16 +43,28 @@ class FakeResource(MessageBasedResource):
 
     def write(self, command):
         self.on_io()
+        self.io_events.append(command)
         self.commands.append(command)
         if command in self.write_errors:
             raise self.write_errors[command]
+        self.queued_errors.extend(self.errors_after_write.get(command, []))
         return len(command)
 
-    def query(self, command):
+    def query(self, command, delay=None):
         self.on_io()
-        self.commands.append(command)
+        self.io_events.append(command)
+        if command == ":SYST:ERR?":
+            self.error_queries.append(self.timeout)
+            self.error_query_delays.append(delay)
+        else:
+            self.commands.append(command)
         if self.query_error is not None:
             raise self.query_error
+        if command == ":SYST:ERR?":
+            if self.diagnostic_error is not None:
+                raise self.diagnostic_error
+            return self.queued_errors.pop(0) if self.queued_errors else '0,"No error"'
+        self.queued_errors.extend(self.errors_after_query.get(command, []))
         return self.responses[command]
 
     def close(self):
