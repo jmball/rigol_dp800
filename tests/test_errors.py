@@ -37,12 +37,12 @@ class ErrorTests(unittest.TestCase):
             self.resource, "query", side_effect=scripted_query
         )
 
-    def test_connect_discards_stale_errors_before_checked_initialization(self):
+    def test_connect_only_reads_and_clears_stale_errors(self):
         self.resource.queued_errors = ['-113,"Old error"', '-222,"Another old error"']
         self.connect()
         self.assertEqual(
             self.resource.io_events,
-            [":SYST:ERR?", ":SYST:ERR?", ":SYST:ERR?", ":SYST:REM", ":SYST:ERR?"],
+            [":SYST:ERR?", ":SYST:ERR?", ":SYST:ERR?"],
         )
         self.assertEqual(self.resource.queued_errors, [])
         self.assertIs(self.driver._instr, self.resource)
@@ -61,14 +61,16 @@ class ErrorTests(unittest.TestCase):
                 self.assertEqual(self.resource.closed, 1)
                 self.assertNotIn(":SYST:REM", self.resource.commands)
 
-    def test_connect_checks_remote_mode_errors_after_clearing_stale_queue(self):
+    def test_remote_mode_is_explicit_and_checks_instrument_errors(self):
         self.resource.queued_errors = ['-113,"Stale error"']
         self.resource.errors_after_write[":SYST:REM"] = ['-222,"Remote mode rejected"']
+        self.connect()
+        self.assertNotIn(":SYST:REM", self.resource.commands)
         with self.assertRaises(InstrumentError) as raised:
-            self.connect()
+            self.driver.set_remote()
         self.assertEqual(str(raised.exception), '-222,"Remote mode rejected"')
-        self.assertEqual(self.resource.closed, 1)
-        self.assertIsNone(self.driver._instr)
+        self.assertEqual(self.resource.closed, 0)
+        self.assertIs(self.driver._instr, self.resource)
 
     def test_writes_report_only_raw_error_responses(self):
         self.connect()

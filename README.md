@@ -60,8 +60,10 @@ to return `0.0`, including for `"ALL"`.
 
 ## Instrument errors
 
-`connect()` drains stale errors before entering remote mode, then checks remote
-mode for errors. Each successful write and each successfully read query response
+`connect()` clears stale errors before making the connection available. Call
+`set_remote()` afterward if you want remote mode and restricted front-panel
+controls; `connect()` does not send a mode-change command.
+Each successful write and each successfully read query response
 is followed by `get_errors()`, which reads `:SYST:ERR?` until the instrument
 reports no error. Nonzero entries raise `InstrumentError`. Its message contains
 only the raw instrument responses, joined with newlines, without command names

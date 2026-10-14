@@ -117,7 +117,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(
             self.resource.commands,
             [
-                ":SYST:REM",
                 ":OUTP  CH1,OFF",
                 ":OUTP  CH2,OFF",
                 ":OUTP  CH3,OFF",
@@ -184,7 +183,7 @@ class ConnectionTests(unittest.TestCase):
             read_termination="\n",
             write_termination="\n",
         )
-        self.assertEqual(self.resource.commands, [":SYST:REM"])
+        self.assertEqual(self.resource.commands, [])
         self.assertEqual(self.resource.query_delay, 0.1)
         self.assertIs(self.driver._instr, self.resource)
 
@@ -219,7 +218,7 @@ class ConnectionTests(unittest.TestCase):
                 self.assertEqual(self.resource.encoding, "ascii")
                 self.assertEqual(self.resource.read_termination, "\n")
                 self.assertEqual(self.resource.write_termination, "\n")
-                self.assertEqual(self.resource.commands, [":SYST:REM"])
+                self.assertEqual(self.resource.commands, [])
 
     def test_connecting_twice_raises_without_touching_existing_connection(self):
         self.connect()
@@ -235,7 +234,7 @@ class ConnectionTests(unittest.TestCase):
         self.driver.disconnect()
         self.driver.disconnect()
         self.assertEqual(
-            self.resource.commands[1:],
+            self.resource.commands,
             [
                 ":OUTP  CH1,OFF",
                 ":OUTP  CH2,OFF",
@@ -286,13 +285,13 @@ class ConnectionTests(unittest.TestCase):
                 self.manager.close.assert_not_called()
 
     def test_initialization_failures_close_resource_and_allow_retry(self):
-        for stage in ("remote", "interrupt"):
+        for stage in ("queue", "interrupt"):
             with self.subTest(stage=stage):
                 self.setUp()
                 error = (
                     KeyboardInterrupt() if stage == "interrupt" else ValueError(stage)
                 )
-                self.resource.write_errors[":SYST:REM"] = error
+                self.resource.diagnostic_error = error
                 with self.assertRaises(type(error)):
                     self.connect(timeout=500)
                 self.assertEqual(self.resource.closed, 1)
@@ -304,8 +303,8 @@ class ConnectionTests(unittest.TestCase):
                 self.assertIs(self.driver._instr, replacement)
 
     def test_failed_initialization_preserves_error_when_resource_close_fails(self):
-        error = ValueError("Remote mode failed")
-        self.resource.write_errors[":SYST:REM"] = error
+        error = ValueError("Error queue failed")
+        self.resource.diagnostic_error = error
         self.resource.close_error = OSError("Resource close failed")
         with patch.object(pyvisa, "ResourceManager", return_value=self.manager):
             with self.assertLogs("dp800.dp800", level="WARNING"):
@@ -485,9 +484,9 @@ class ConnectionTests(unittest.TestCase):
         with patch("dp800.dp800.logger.info") as log_info:
             self.connect()
         log_info.assert_not_called()
-        self.assertEqual(self.resource.commands, [":SYST:REM"])
+        self.assertEqual(self.resource.commands, [])
         self.assertEqual(self.driver.identity, ["RIGOL", "DP832", "serial", "version"])
-        self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
+        self.assertEqual(self.resource.commands, ["*IDN?"])
         with patch("virtual_dp800.virtual_dp800.logger.info") as virtual_log_info:
             VirtualDP800().connect("virtual")
         virtual_log_info.assert_not_called()

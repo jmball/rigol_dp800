@@ -93,8 +93,8 @@ class DP800:
     ) -> None:
         """Open and initialize a connection without resetting the instrument.
 
-        Stale errors are drained before initialization. Remote mode and its
-        error-queue check must succeed before _instr is assigned. Read identity
+        Stale errors are read and cleared before _instr is assigned. Call
+        set_remote() explicitly if remote mode is desired. Read identity
         explicitly if identification is required; connection logging is left
         to the caller.
         The instance stays disconnected on failure. PyVISA handles cleanup if
@@ -154,10 +154,6 @@ class DP800:
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
             self.get_errors(_resource=resource)
-            resource.write(":SYST:REM")
-            errors = self.get_errors(_resource=resource)
-            if errors:
-                raise InstrumentError("\n".join(errors))
         except BaseException:
             if resource is not None:
                 try:
@@ -1853,7 +1849,11 @@ class DP800:
         warnings.warn("Not implemented.")
 
     def set_remote(self) -> None:
-        """Set the instrument to remote mode."""
+        """Switch to remote mode and restrict front-panel operations.
+
+        Call after connect() when desired. This explicit mode change checks
+        the instrument error queue like other commands.
+        """
         self._write(":SYST:REM")
 
     def set_brightness(self) -> None:

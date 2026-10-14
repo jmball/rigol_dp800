@@ -26,7 +26,7 @@ class ChannelTests(unittest.TestCase):
 
     def test_channel_views_are_always_one_to_three_without_identity_queries(self):
         self.assertEqual(list(self.supply.channels), [1, 2, 3])
-        self.assertEqual(self.resource.commands, [":SYST:REM"])
+        self.assertEqual(self.resource.commands, [])
         self.supply.disconnect()
         before = list(self.resource.io_events)
         self.assertEqual(list(self.supply.channels), [1, 2, 3])

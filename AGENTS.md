@@ -109,8 +109,8 @@ documented by the parent driver, while leaving enforcement to the instrument.
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-drains stale error entries, and switches to remote mode with error checking
-before publishing `self._instr`. Identity queries
+and clears stale error entries before publishing `self._instr`. Remote mode is
+an explicit caller operation through set_remote(). Identity queries
 and connection logging are caller responsibilities; read identity explicitly
 when identification is needed.
 Framing values are module-level constants shared with the virtual driver, and
