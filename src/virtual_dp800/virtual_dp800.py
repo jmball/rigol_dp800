@@ -17,32 +17,29 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 
-class dp800:
+class DP800:
     """Virtual Rigol DP800 series power supply instrument."""
 
     def __init__(self, check_errors: bool = True) -> None:
-        """Initialise object.
+        """Initialize a virtual driver with fixed placeholder channels.
 
         Parameters
         ----------
         check_errors : bool, optional
-            Check instrument error status after every command.
+            Accepted for compatibility with the existing constructor; ignored
+            by this placeholder implementation.
         """
         self._connected = False
         self._channels = {channel: DP800Channel(self, channel) for channel in (1, 2, 3)}
 
-    @property
-    def channel_count(self) -> int:
-        """Return three placeholder channels without hardware I/O."""
-        return 3
+    def __enter__(self) -> "DP800":
+        """Return this instance without opening a connection.
 
-    @property
-    def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only, one-based channel mapping with stable placeholder objects."""
-        return MappingProxyType(self._channels)
-
-    def __enter__(self) -> "dp800":
-        """Return this instance without opening a connection."""
+        Returns
+        -------
+        value : DP800
+            This driver instance.
+        """
         return self
 
     def __exit__(
@@ -51,8 +48,20 @@ class dp800:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Disconnect on exit without suppressing exceptions from the block."""
+        """Disconnect on exit without suppressing exceptions from the block.
+
+        Parameters
+        ----------
+        exc_type : type[BaseException] or None
+            Type of exception raised by the block, or None for normal completion.
+        exc_value : BaseException or None
+            Exception raised by the block, or None for normal completion.
+        traceback : TracebackType or None
+            Exception traceback, or None for normal completion.
+        """
         self.disconnect()
+
+    # --- Connection lifecycle ---
 
     def connect(
         self,
@@ -98,6 +107,30 @@ class dp800:
         """Disconnect virtually; repeated calls are harmless."""
         self._connected = False
 
+    # --- Channel discovery ---
+
+    @property
+    def channel_count(self) -> int:
+        """Return three placeholder channels without hardware I/O.
+
+        Returns
+        -------
+        value : int
+            Number of physical output channels.
+        """
+        return 3
+
+    @property
+    def channels(self) -> Mapping[int, DP800Channel]:
+        """Read-only, one-based channel mapping with stable placeholder objects.
+
+        Returns
+        -------
+        value : Mapping[int, DP800Channel]
+            Channel views keyed by one-based physical channel numbers.
+        """
+        return MappingProxyType(self._channels)
+
     # --- ANALyser commands ---
 
     # --- APPLy commands---
@@ -109,6 +142,8 @@ class dp800:
         current: float | Literal["MIN", "MAX", "DEF"] | None = None,
     ) -> None:
         """Select a channel and set its current and/or voltage.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -208,6 +243,8 @@ class dp800:
     ) -> None:
         """Set the number of cycles for the delayer.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         finite : 'N' or 'I'
@@ -253,15 +290,13 @@ class dp800:
     def delay_end_state(self) -> str:
         """Get the state of the instrument when the delayer stops.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         endstate : 'ON', 'OFF', 'LAST'
             State to put instrument in when delayer stops. 'ON' switches on the output,
             'OFF' switches off the output, and 'LAST' uses the last state.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # cmd = ":DELAY:ENDS?"
         # endstate = self._instr.query(cmd)
@@ -275,6 +310,8 @@ class dp800:
     @delay_end_state.setter
     def delay_end_state(self, endstate: Literal["ON", "OFF", "LAST"]) -> None:
         """Set the state of the instrument when the delayer stops.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -293,16 +330,14 @@ class dp800:
     def delay_groups(self) -> int:
         """Get the number of output groups of the delayer.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+        The instrument supports group counts in the range 1 - 2048.
+
         Returns
         -------
         groups : int
             Number of output groups of delayer cycles, i.e. number of times output
             turns on or off.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-        The instrument supports group counts in the range 1 - 2048.
         """
         # cmd = f":DELAY:GROUP?"
         # groups = int(self._instr.query(cmd))
@@ -316,6 +351,8 @@ class dp800:
     @delay_groups.setter
     def delay_groups(self, groups: int) -> None:
         """Set the number of output groups of the delayer.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -331,46 +368,90 @@ class dp800:
         pass
 
     def set_delay_parameters(self) -> None:
-        """Set the delayer parameters of the specified group."""
+        """Set the delayer parameters of the specified group.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         pass
 
     def get_delay_parameters(self) -> None:
-        """Get the delayer parameters of the specified group."""
+        """Get the delayer parameters of the specified group.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         pass
 
     def set_delay_state(self, enable: bool) -> None:
         """Enable/disable the delay output function.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Applies to currently selected channel.
 
         Parameters
         ----------
+
+        Parameters
+        ----------
+        enable : bool
+            Whether the setting should be enabled.
         """
         pass
 
     def get_delay_state(self, enable: bool) -> None:
         """Get the enable/disable state of the delay output function.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Applies to current channel.
+
+        Parameters
+        ----------
+        enable : bool
+            Whether the setting should be enabled.
         """
         pass
 
     def set_delay_state_pattern(self) -> None:
+        """Set the delay state pattern.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_delay_state_pattern(self) -> None:
+        """Query the delay state pattern.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_delay_stop_condition(self) -> None:
+        """Set the delay stop condition.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_delay_stop_condition(self) -> None:
+        """Query the delay stop condition.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_delay_time_method(self) -> None:
+        """Set the delay time method.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_delay_time_method(self) -> None:
+        """Query the delay time method.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     # --- DISPlay commands ---
@@ -378,7 +459,10 @@ class dp800:
     # --- IEEE488.2 common commands ---
 
     def clear_event_registers(self) -> None:
-        """Clear all event registers."""
+        """Clear all event registers.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # self._instr.write("*CLS")
 
         # if self.check_errors is True:
@@ -389,14 +473,12 @@ class dp800:
     def standard_event_enable_register(self) -> int:
         """Get the standard event enable register value.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         value : int
             Register bitmask in the range 0 - 255; assign to enable bits.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # value = int(self._instr.query("*ESE?"))
 
@@ -409,6 +491,8 @@ class dp800:
     @standard_event_enable_register.setter
     def standard_event_enable_register(self, value: int) -> None:
         """Enable bits in the standard event enable register.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -440,14 +524,12 @@ class dp800:
     def identity(self) -> str:
         """Get the virtual instrument identity.
 
+        Returns a fixed placeholder without hardware I/O.
+
         Returns
         -------
         identity : str
             Fixed identity string for the virtual instrument.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O.
         """
         # idn = self._instr.query("*IDN?").split(",")
 
@@ -459,6 +541,8 @@ class dp800:
 
     def set_opc(self) -> None:
         """Set operation complete.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Sets bit 0 of the standard event register after completing the current
         operation.
@@ -492,15 +576,13 @@ class dp800:
     def option_installation_status(self) -> list[str]:
         """Get the status of installed options.
 
+        Returns a fixed placeholder without hardware I/O.
+
         Returns
         -------
         options : list of str
             List of options. If an option is installed its name is returned, otherwise
             the query returns a 0.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O.
         """
         # options = self._instr.query("*OPT?")
 
@@ -514,6 +596,8 @@ class dp800:
     def power_on_status_clear_bit(self) -> int:
         """Get the power-on status clear bit.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         value : int
@@ -521,10 +605,6 @@ class dp800:
 
                 * 0 : Cleared, status enable registers maintain values at power down.
                 * 1 : Set, all status and enable registers are cleared on power up.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # cmd = f"*PSC?"
         # value = int(self._instr.query(cmd))
@@ -538,6 +618,8 @@ class dp800:
     @power_on_status_clear_bit.setter
     def power_on_status_clear_bit(self, value: int) -> None:
         """Set the power-on status clear bit.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -557,6 +639,8 @@ class dp800:
     def recall_setup(self, number: int) -> None:
         """Recall instrument setup from setting buffer.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         number : {1 - 9}
@@ -570,7 +654,10 @@ class dp800:
         pass
 
     def reset(self) -> None:
-        """Reset the instrument to the factory default configuration."""
+        """Reset the instrument to the factory default configuration.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # cmd = f"*RST"
         # self._instr.write(cmd)
 
@@ -580,6 +667,8 @@ class dp800:
 
     def save_setup(self, number: int) -> None:
         """Save the instrument setup in a settings buffer.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -597,14 +686,12 @@ class dp800:
     def status_byte_enable_register(self) -> int:
         """Get the status byte enable register value.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         value : int
             Register bitmask in the range 0 - 255; assign to enable bits.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # value = int(self._instr.query("*SRE?"))
 
@@ -614,6 +701,8 @@ class dp800:
     @status_byte_enable_register.setter
     def status_byte_enable_register(self, value: int) -> None:
         """Enable bits in the status byte enable register.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -634,14 +723,12 @@ class dp800:
 
         Querying this register does not clear it.
 
+        Returns a fixed placeholder without hardware I/O.
+
         Returns
         -------
         value : int
             Register value.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O.
         """
         # value = int(self._instr.query("*STB?"))
 
@@ -650,6 +737,8 @@ class dp800:
 
     def trigger(self) -> None:
         """Generate a trigger.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Only available when bus (software) trigger is selected.
         """
@@ -663,14 +752,12 @@ class dp800:
     def self_test_results(self) -> list[str]:
         """Get the results of the instrument self-test.
 
+        Returns a fixed placeholder without hardware I/O.
+
         Returns
         -------
         result : list
             List of test results for the top board, bottom board, and fan.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O.
         """
         # result = self._instr.query("*TST?").split(",")
 
@@ -681,7 +768,10 @@ class dp800:
         return []
 
     def wait(self) -> None:
-        """Wait until processing all pending commands is complete."""
+        """Wait until processing all pending commands is complete.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # self._instr.write("*WAI")
 
         # if self.check_errors is True:
@@ -691,7 +781,10 @@ class dp800:
     # --- INITiate command ---
 
     def init_trigger(self) -> None:
-        """Initialise the trigger system."""
+        """Initialise the trigger system.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # cmd = ":INIT"
         # self._instr.write(cmd)
 
@@ -707,16 +800,14 @@ class dp800:
 
         Only applicable to multi-channel models.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+        Assign "ALL", "NONE", or a list of at least two channel names.
+
         Returns
         -------
         channels : str or list
             If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
             where each element is a channel name and rating separated by a `:`.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-        Assign "ALL", "NONE", or a list of at least two channel names.
         """
         # channels = self._instr.query(":INST:COUP?").split(",")
         # if len(channels) == 1:
@@ -731,6 +822,8 @@ class dp800:
     @trigger_coupling_channels.setter
     def trigger_coupling_channels(self, channels: str | list[str]) -> None:
         """Set trigger coupling channels.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Only applicable to multi-channel models.
 
@@ -760,14 +853,12 @@ class dp800:
         rated ouptut. This method always uses NSELect because fewer characters are
         exchanged in the query operation.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         channel : int
             Currently selected channel number.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # channel = int(self._instr.query(":INST:NSEL?"))
 
@@ -780,6 +871,8 @@ class dp800:
     @selected_channel.setter
     def selected_channel(self, channel: int) -> None:
         """Select the current channel.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Only applicable to multi-channel models.
 
@@ -803,6 +896,8 @@ class dp800:
 
     def install_options(self, options_licence: str) -> None:
         """Install options.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Only applicable to DP831/DP832/DP821/DP811.
 
@@ -934,6 +1029,8 @@ class dp800:
     def clear_ocp_label(self, channel: int | None = None) -> None:
         """Clear the overcurrent protection alarm label.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         channel : int, optional
@@ -950,6 +1047,8 @@ class dp800:
 
     def set_ocp_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the overcurrent protection function.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         The instrument provides two commands to set this function. This method uses
         the `output` command rather than the `source` command.
@@ -1009,6 +1108,8 @@ class dp800:
         self, value: float | Literal["MIN", "MAX"], channel: int | None = None
     ) -> None:
         """Set the overcurrent protection value for a channel.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         The instrument provides two commands to set this function. This method uses
         the `output` command rather than the `source` command.
@@ -1103,6 +1204,8 @@ class dp800:
     def clear_ovp_label(self, channel: int | None = None) -> None:
         """Clear the overvoltage protection alarm label.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         channel : int, optional
@@ -1119,6 +1222,8 @@ class dp800:
 
     def set_ovp_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the overvoltage protection function.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         The instrument provides two commands to set this function. This method uses
         the `output` command rather than the `source` command.
@@ -1179,6 +1284,8 @@ class dp800:
     ) -> None:
         """Set the overvoltage protection value for a channel.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         The instrument provides two commands to set this function. This method uses
         the `output` command rather than the `source` command.
 
@@ -1231,11 +1338,21 @@ class dp800:
         return 0.0
 
     def set_output_range(self, range: str) -> None:
-        """Only applicable to single channel model."""
+        """Only applicable to single channel model.
+
+        This virtual operation is a no-op; no instrument command is sent.
+
+        Parameters
+        ----------
+        range : str
+            Requested output range.
+        """
         pass
 
     def set_output_sense_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable output sense function.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Only supported on some channels for some models.
 
@@ -1294,6 +1411,8 @@ class dp800:
     def set_output_enable(self, enable: bool, channel: int | None = None) -> None:
         """Enable/disable the output of a channel.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         enable : bool
@@ -1343,21 +1462,45 @@ class dp800:
         return False
 
     def set_output_timer(self) -> None:
+        """Set the output timer.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_output_timer(self) -> None:
+        """Query the output timer.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_output_timer_enable(self) -> None:
+        """Set the output timer enable.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_output_timer_enable(self) -> None:
+        """Query the output timer enable.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_output_track(self) -> None:
+        """Set the output track.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_output_track(self) -> None:
+        """Query the output track.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     # --- PRESet commands ---
@@ -1374,6 +1517,8 @@ class dp800:
         channel: int | None = None,
     ) -> None:
         """Set the current of specified channel.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -1417,22 +1562,60 @@ class dp800:
         return 0.0
 
     def set_current_step(self) -> None:
+        """Set the current step.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_current_step(self) -> None:
+        """Query the current step.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_source_trigger(
         self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
     ) -> None:
+        """Set the source trigger level.
+
+        This operation is not implemented. No instrument command is sent.
+
+        Parameters
+        ----------
+        func : {'CURR', 'VOLT'}
+            Quantity to select: current ('CURR') or voltage ('VOLT').
+        level : float
+            Requested trigger level for the selected quantity.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
+        """
         pass
 
     def get_source_trigger(
         self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
     ) -> None:
+        """Query the source trigger level.
+
+        This operation is not implemented. No instrument command is sent.
+
+        Parameters
+        ----------
+        func : {'CURR', 'VOLT'}
+            Quantity to select: current ('CURR') or voltage ('VOLT').
+        level : float
+            Requested trigger level for the selected quantity.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
+        """
         pass
 
     def clear_ocp_circuit(self) -> None:
+        """Clear the overcurrent protection circuit.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_voltage(
@@ -1441,6 +1624,8 @@ class dp800:
         channel: int | None = None,
     ) -> None:
         """Set the voltage of specified channel.
+
+        This virtual operation is a no-op; no instrument command is sent.
 
         Parameters
         ----------
@@ -1484,18 +1669,39 @@ class dp800:
         return 0.0
 
     def set_voltage_step(self) -> None:
+        """Set the voltage step.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_voltage_step(self) -> None:
+        """Query the voltage step.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def clear_ovp_circuit(self) -> None:
+        """Clear the overvoltage protection circuit.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_voltage_range(self, range: str, channel: int | None = None) -> None:
         """Set the voltage range of a channel.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Only applicable to single channel model.
+
+        Parameters
+        ----------
+        range : str
+            Requested output range.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
         """
         pass
 
@@ -1506,33 +1712,73 @@ class dp800:
     # --- SYSTem commands ---
 
     def set_beeper(self) -> None:
+        """Set the beeper state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_beeper(self) -> None:
+        """Query the beeper state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_gpib_config(self) -> None:
+        """Set the GPIB configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_gpib_config(self) -> None:
+        """Query the GPIB configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_lan_config(self) -> None:
+        """Set the LAN configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_lan_config(self) -> None:
+        """Query the LAN configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_rs232_config(self) -> None:
+        """Set the RS232 configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_rs232_config(self) -> None:
+        """Query the RS232 configuration.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_contrast(self) -> None:
+        """Set the contrast.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_contrast(self) -> None:
+        """Query the contrast.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_error(self) -> list[str]:
@@ -1550,23 +1796,29 @@ class dp800:
         return []
 
     def set_key_keylock(self) -> None:
+        """Set the individual front-panel key lock.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_key_keylock(self) -> None:
+        """Query the individual front-panel key lock.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     @property
     def keylock_enabled(self) -> bool:
         """Query enable/disable state of front panel keys in remote mode.
 
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+
         Returns
         -------
         enable : bool
             Enabled/disabled state of the front panel lock
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
         """
         # cmd = ":SYST:KLOC:STAT?"
         # enable = self._instr.query(cmd)
@@ -1585,6 +1837,8 @@ class dp800:
     def keylock_enabled(self, enable: bool) -> None:
         """Enable/disable front panel keys in remote mode.
 
+        This virtual operation is a no-op; no instrument command is sent.
+
         Parameters
         ----------
         enable : bool
@@ -1602,13 +1856,24 @@ class dp800:
         pass
 
     def set_language(self) -> None:
+        """Set the language.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_language(self) -> None:
+        """Query the language.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_local(self) -> None:
-        """Return instrument to local mode."""
+        """Return instrument to local mode.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # self._instr.write(":SYST:LOC")
 
         # if self.check_errors is True:
@@ -1616,31 +1881,66 @@ class dp800:
         pass
 
     def set_lock(self) -> None:
+        """Set the instrument lock state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_lock(self) -> None:
+        """Query the instrument lock state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_on_off_sync(self) -> None:
+        """Set the output synchronization.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_on_off_sync(self) -> None:
+        """Query the output synchronization.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_otp_enable(self) -> None:
+        """Set the overtemperature protection enable state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_otp_enable(self) -> None:
+        """Query the overtemperature protection enable state.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_power_on_config_mode(self) -> None:
+        """Set the power on config mode.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_power_on_config_mode(self) -> None:
+        """Query the power on config mode.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_remote(self) -> None:
-        """Set the instrument to remote mode."""
+        """Set the instrument to remote mode.
+
+        This virtual operation is a no-op; no instrument command is sent.
+        """
         # self._instr.write(":SYST:REM")
 
         # if self.check_errors is True:
@@ -1648,26 +1948,36 @@ class dp800:
         pass
 
     def set_brightness(self) -> None:
+        """Set the brightness.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_brightness(self) -> None:
+        """Query the brightness.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def set_screen_saver_enable(self) -> None:
+        """Set the screen saver enable.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     @property
     def temperature_test_result(self) -> float:
         """Query the self-test result of the temperature.
 
+        Returns a fixed placeholder without hardware I/O.
+
         Returns
         -------
         temperature : float
             Temperature in degrees Celsius.
-
-        Notes
-        -----
-        Returns a fixed placeholder without hardware I/O.
         """
         # temperature = float(self._instr.query(":SYST:SELF:TEST:TEMP?"))
 
@@ -1678,12 +1988,24 @@ class dp800:
         return 0.0
 
     def set_track_mode(self) -> None:
+        """Set the tracking mode.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_track_mode(self) -> None:
+        """Query the tracking mode.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     def get_scpi_version(self) -> None:
+        """Query the SCPI version.
+
+        This operation is not implemented. No instrument command is sent.
+        """
         pass
 
     # --- TIMEr commands ---

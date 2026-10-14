@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
 
-class dp800:
+class DP800:
     """Rigol DP800 series power supply instrument.
 
     Use connect() to initialize a connection and disconnect() to release it.
@@ -61,59 +61,19 @@ class dp800:
     """
 
     def __init__(self) -> None:
+        """Initialize a disconnected DP800 driver."""
         self._instr: MessageBasedResource | None = None
         self._channel_count: int | None = None
         self._channels: dict[int, DP800Channel] = {}
 
-    @property
-    def channel_count(self) -> int:
-        """Number of physical outputs, discovered on demand from identity.
+    def __enter__(self) -> "DP800":
+        """Return this instance without opening a connection.
 
         Returns
         -------
-        count : int
-            One, two, or three outputs for a supported DP800 model. Dual-range
-            single-output models have one channel.
-
-        Notes
-        -----
-        The first access per connection queries identity. The result is cached
-        until disconnect; connect() does not query identity. Unknown models
-        or malformed identity responses raise ValueError.
+        value : DP800
+            This driver instance.
         """
-        if self._instr is None:
-            raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        if self._channel_count is None:
-            identity = self.identity
-            if len(identity) < 2:
-                raise ValueError(f"Invalid instrument identity: {identity!r}.")
-            model = identity[1].strip().upper()
-            try:
-                self._channel_count = _MODEL_CHANNEL_COUNTS[model]
-            except KeyError:
-                raise ValueError(f"Unsupported DP800 model: {model!r}.") from None
-        return self._channel_count
-
-    @property
-    def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only channel mapping keyed by one-based physical numbers.
-
-        Notes
-        -----
-        Access discovers channel_count if needed. Channel objects are reused
-        across accesses and reconnects. Retained objects validate availability
-        against the current connection before performing I/O.
-        """
-        count = self.channel_count
-        for channel in range(1, count + 1):
-            if channel not in self._channels:
-                self._channels[channel] = DP800Channel(self, channel)
-        return MappingProxyType(
-            {channel: self._channels[channel] for channel in range(1, count + 1)}
-        )
-
-    def __enter__(self) -> "dp800":
-        """Return this instance without opening a connection."""
         return self
 
     def __exit__(
@@ -122,20 +82,20 @@ class dp800:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Disconnect on exit without suppressing exceptions from the block."""
+        """Disconnect on exit without suppressing exceptions from the block.
+
+        Parameters
+        ----------
+        exc_type : type[BaseException] or None
+            Type of exception raised by the block, or None for normal completion.
+        exc_value : BaseException or None
+            Exception raised by the block, or None for normal completion.
+        traceback : TracebackType or None
+            Exception traceback, or None for normal completion.
+        """
         self.disconnect()
 
-    def _write(self, command: str) -> int:
-        """Write a command, preserving the VISA return value and exceptions."""
-        if self._instr is None:
-            raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        return self._instr.write(command)
-
-    def _query(self, command: str) -> str:
-        """Query a response, preserving VISA exceptions."""
-        if self._instr is None:
-            raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        return self._instr.query(command)
+    # --- Connection lifecycle ---
 
     def connect(
         self,
@@ -145,6 +105,17 @@ class dp800:
         **resource_kwargs: Any,
     ) -> None:
         """Open and initialize a connection without resetting the instrument.
+
+        Remote mode must succeed before _instr is assigned. Read identity
+        explicitly if identification is required; connection logging is left
+        to the caller.
+        The instance stays disconnected on failure. PyVISA handles cleanup if
+        open_resource() raises; the driver closes the returned resource if
+        subsequent initialization fails.
+        No reset, voltage/current setting, or output-enable command is sent.
+        PyVISA can reuse a manager for the same backend. This driver closes only
+        its instrument resource. The PyVISA resource retains its manager for
+        the connection's lifetime.
 
         Parameters
         ----------
@@ -175,19 +146,6 @@ class dp800:
             If an invalid resource attribute is supplied.
         TypeError
             If the opened resource is not message-based.
-
-        Notes
-        -----
-        Remote mode must succeed before _instr is assigned. Read identity
-        explicitly if identification is required; connection logging is left
-        to the caller.
-        The instance stays disconnected on failure. PyVISA handles cleanup if
-        open_resource() raises; the driver closes the returned resource if
-        subsequent initialization fails.
-        No reset, voltage/current setting, or output-enable command is sent.
-        PyVISA can reuse a manager for the same backend. This driver closes only
-        its instrument resource. The PyVISA resource retains its manager for
-        the connection's lifetime.
         """
         if self._instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
@@ -263,6 +221,92 @@ class dp800:
                     logger.warning("Failed to close instrument.", exc_info=True)
         if error is not None:
             raise error
+
+    # --- Channel discovery ---
+
+    @property
+    def channel_count(self) -> int:
+        """Number of physical outputs, discovered on demand from identity.
+
+        The first access per connection queries identity. The result is cached
+        until disconnect; connect() does not query identity. Unknown models
+        or malformed identity responses raise ValueError.
+
+        Returns
+        -------
+        count : int
+            One, two, or three outputs for a supported DP800 model. Dual-range
+            single-output models have one channel.
+        """
+        if self._instr is None:
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        if self._channel_count is None:
+            identity = self.identity
+            if len(identity) < 2:
+                raise ValueError(f"Invalid instrument identity: {identity!r}.")
+            model = identity[1].strip().upper()
+            try:
+                self._channel_count = _MODEL_CHANNEL_COUNTS[model]
+            except KeyError:
+                raise ValueError(f"Unsupported DP800 model: {model!r}.") from None
+        return self._channel_count
+
+    @property
+    def channels(self) -> Mapping[int, DP800Channel]:
+        """Read-only channel mapping keyed by one-based physical numbers.
+
+        Access discovers channel_count if needed. Channel objects are reused
+        across accesses and reconnects. Retained objects validate availability
+        against the current connection before performing I/O.
+
+        Returns
+        -------
+        value : Mapping[int, DP800Channel]
+            Channel views keyed by one-based physical channel numbers.
+        """
+        count = self.channel_count
+        for channel in range(1, count + 1):
+            if channel not in self._channels:
+                self._channels[channel] = DP800Channel(self, channel)
+        return MappingProxyType(
+            {channel: self._channels[channel] for channel in range(1, count + 1)}
+        )
+
+    # --- VISA I/O ---
+
+    def _write(self, command: str) -> int:
+        """Write a command, preserving the VISA return value and exceptions.
+
+        Parameters
+        ----------
+        command : str
+            SCPI command to send to the instrument.
+
+        Returns
+        -------
+        value : int
+            Number of bytes written, as reported by PyVISA.
+        """
+        if self._instr is None:
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        return self._instr.write(command)
+
+    def _query(self, command: str) -> str:
+        """Query a response, preserving VISA exceptions.
+
+        Parameters
+        ----------
+        command : str
+            SCPI command to send to the instrument.
+
+        Returns
+        -------
+        value : str
+            Response received from the instrument.
+        """
+        if self._instr is None:
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        return self._instr.query(command)
 
     # --- ANALyser commands ---
 
@@ -395,16 +439,14 @@ class dp800:
     def delay_end_state(self) -> str:
         """Get the state of the instrument when the delayer stops.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+
         Returns
         -------
         endstate : 'ON', 'OFF', 'LAST'
             State to put instrument in when delayer stops. 'ON' switches on the output,
             'OFF' switches off the output, and 'LAST' uses the last state.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
         """
         cmd = ":DELAY:ENDS?"
         endstate = self._query(cmd)
@@ -428,17 +470,15 @@ class dp800:
     def delay_groups(self) -> int:
         """Get the number of output groups of the delayer.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        The instrument supports group counts in the range 1 - 2048.
+
         Returns
         -------
         groups : int
             Number of output groups of delayer cycles, i.e. number of times output
             turns on or off.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
-        The instrument supports group counts in the range 1 - 2048.
         """
         cmd = f":DELAY:GROUP?"
         groups = int(self._query(cmd))
@@ -459,46 +499,100 @@ class dp800:
         self._write(cmd)
 
     def set_delay_parameters(self) -> None:
-        """Set the delayer parameters of the specified group."""
+        """Set the delayer parameters of the specified group.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_delay_parameters(self) -> None:
-        """Get the delayer parameters of the specified group."""
+        """Get the delayer parameters of the specified group.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_delay_state(self, enable: bool) -> None:
         """Enable/disable the delay output function.
 
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
         Applies to currently selected channel.
 
         Parameters
         ----------
+
+        Parameters
+        ----------
+        enable : bool
+            Whether the setting should be enabled.
         """
         warnings.warn("Not implemented.")
 
     def get_delay_state(self, enable: bool) -> None:
         """Get the enable/disable state of the delay output function.
 
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
         Applies to current channel.
+
+        Parameters
+        ----------
+        enable : bool
+            Whether the setting should be enabled.
         """
         warnings.warn("Not implemented.")
 
     def set_delay_state_pattern(self) -> None:
+        """Set the delay state pattern.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_delay_state_pattern(self) -> None:
+        """Query the delay state pattern.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_delay_stop_condition(self) -> None:
+        """Set the delay stop condition.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_delay_stop_condition(self) -> None:
+        """Query the delay stop condition.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_delay_time_method(self) -> None:
+        """Set the delay time method.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_delay_time_method(self) -> None:
+        """Query the delay time method.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     # --- DISPlay commands ---
@@ -513,15 +607,13 @@ class dp800:
     def standard_event_enable_register(self) -> int:
         """Get the standard event enable register value.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+
         Returns
         -------
         value : int
             Register bitmask in the range 0 - 255; assign to enable bits.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
         """
         value = int(self._query("*ESE?"))
 
@@ -559,15 +651,13 @@ class dp800:
     def identity(self) -> list[str]:
         """Get instrument identity string.
 
+        Each access performs VISA I/O and can raise communication errors.
+
         Returns
         -------
         id : list of str
             List of identification strings consisting of manufacturer, model, serial
             number, and board version number in order.
-
-        Notes
-        -----
-        Each access performs VISA I/O and can raise communication errors.
         """
         idn = self._query("*IDN?").split(",")
 
@@ -600,15 +690,13 @@ class dp800:
     def option_installation_status(self) -> str:
         """Get the status of installed options.
 
+        Each access performs VISA I/O and can raise communication errors.
+
         Returns
         -------
         options : str
             List of options. If an option is installed its name is returned, otherwise
             the query returns a 0.
-
-        Notes
-        -----
-        Each access performs VISA I/O and can raise communication errors.
         """
         options = self._query("*OPT?")
 
@@ -618,6 +706,9 @@ class dp800:
     def power_on_status_clear_bit(self) -> int:
         """Get the power-on status clear bit.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+
         Returns
         -------
         value : int
@@ -625,11 +716,6 @@ class dp800:
 
                 * 0 : Cleared, status enable registers maintain values at power down.
                 * 1 : Set, all status and enable registers are cleared on power up.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
         """
         cmd = f"*PSC?"
         value = int(self._query(cmd))
@@ -682,15 +768,13 @@ class dp800:
     def status_byte_enable_register(self) -> int:
         """Get the status byte enable register value.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+
         Returns
         -------
         value : int
             Register bitmask in the range 0 - 255; assign to enable bits.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
         """
         value = int(self._query("*SRE?"))
 
@@ -718,14 +802,12 @@ class dp800:
 
         Querying this register does not clear it.
 
+        Each access performs VISA I/O and can raise communication errors.
+
         Returns
         -------
         value : int
             Register value.
-
-        Notes
-        -----
-        Each access performs VISA I/O and can raise communication errors.
         """
         value = int(self._query("*STB?"))
 
@@ -742,14 +824,12 @@ class dp800:
     def self_test_results(self) -> list[str]:
         """Get the results of the instrument self-test.
 
+        Each access performs VISA I/O and can raise communication errors.
+
         Returns
         -------
         result : list
             List of test results for the top board, bottom board, and fan.
-
-        Notes
-        -----
-        Each access performs VISA I/O and can raise communication errors.
         """
         result = self._query("*TST?").split(",")
 
@@ -774,17 +854,15 @@ class dp800:
 
         Only applicable to multi-channel models.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        Assign "ALL", "NONE", or a list of at least two channel names.
+
         Returns
         -------
         channels : str or list
             If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
             where each element is a channel name and rating separated by a `:`.
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
-        Assign "ALL", "NONE", or a list of at least two channel names.
         """
         channels = self._query(":INST:COUP?").split(",")
         if len(channels) == 1:
@@ -818,17 +896,15 @@ class dp800:
         rated ouptut. This method always uses NSELect because fewer characters are
         exchanged in the query operation.
 
-        Returns
-        -------
-        channel : int
-            Currently selected channel number.
-
-        Notes
-        -----
         Each read or assignment performs VISA I/O and can raise communication
         errors.
         Assigning selects the channel used by subsequent commands that omit a
         channel argument. Only multi-channel models support this property.
+
+        Returns
+        -------
+        channel : int
+            Currently selected channel number.
         """
         channel = int(self._query(":INST:NSEL?"))
 
@@ -1204,7 +1280,16 @@ class dp800:
         return value
 
     def set_output_range(self, range: str) -> None:
-        """Only applicable to single channel model."""
+        """Only applicable to single channel model.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
+        Parameters
+        ----------
+        range : str
+            Requested output range.
+        """
         warnings.warn("Not implemented.")
 
     def set_output_sense_enable(self, enable: bool, channel: int | None = None) -> None:
@@ -1288,21 +1373,51 @@ class dp800:
         return response == "ON"
 
     def set_output_timer(self) -> None:
+        """Set the output timer.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_output_timer(self) -> None:
+        """Query the output timer.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_output_timer_enable(self) -> None:
+        """Set the output timer enable.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_output_timer_enable(self) -> None:
+        """Query the output timer enable.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_output_track(self) -> None:
+        """Set the output track.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_output_track(self) -> None:
+        """Query the output track.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     # --- PRESet commands ---
@@ -1354,22 +1469,65 @@ class dp800:
         return current
 
     def set_current_step(self) -> None:
+        """Set the current step.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_current_step(self) -> None:
+        """Query the current step.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_source_trigger(
         self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
     ) -> None:
+        """Set the source trigger level.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
+        Parameters
+        ----------
+        func : {'CURR', 'VOLT'}
+            Quantity to select: current ('CURR') or voltage ('VOLT').
+        level : float
+            Requested trigger level for the selected quantity.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
+        """
         warnings.warn("Not implemented.")
 
     def get_source_trigger(
         self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
     ) -> None:
+        """Query the source trigger level.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
+        Parameters
+        ----------
+        func : {'CURR', 'VOLT'}
+            Quantity to select: current ('CURR') or voltage ('VOLT').
+        level : float
+            Requested trigger level for the selected quantity.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
+        """
         warnings.warn("Not implemented.")
 
     def clear_ocp_circuit(self) -> None:
+        """Clear the overcurrent protection circuit.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_voltage(
@@ -1413,18 +1571,43 @@ class dp800:
         return voltage
 
     def set_voltage_step(self) -> None:
+        """Set the voltage step.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_voltage_step(self) -> None:
+        """Query the voltage step.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def clear_ovp_circuit(self) -> None:
+        """Clear the overvoltage protection circuit.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_voltage_range(self, range: str, channel: int | None = None) -> None:
         """Set the voltage range of a channel.
 
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+
         Only applicable to single channel model.
+
+        Parameters
+        ----------
+        range : str
+            Requested output range.
+        channel : int or None
+            One-based physical channel number. Omit to use the selected channel.
         """
         warnings.warn("Not implemented.")
 
@@ -1435,37 +1618,90 @@ class dp800:
     # --- SYSTem commands ---
 
     def set_beeper(self) -> None:
+        """Set the beeper state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_beeper(self) -> None:
+        """Query the beeper state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_gpib_config(self) -> None:
+        """Set the GPIB configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_gpib_config(self) -> None:
+        """Query the GPIB configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_lan_config(self) -> None:
+        """Set the LAN configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_lan_config(self) -> None:
+        """Query the LAN configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_rs232_config(self) -> None:
+        """Set the RS232 configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_rs232_config(self) -> None:
+        """Query the RS232 configuration.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_contrast(self) -> None:
+        """Set the contrast.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_contrast(self) -> None:
+        """Query the contrast.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_error(self) -> None:
         """Query and clear error messages in the error queue.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
 
         Returns
         -------
@@ -1479,24 +1715,32 @@ class dp800:
         warnings.warn("Not implemented.")
 
     def set_key_keylock(self) -> None:
+        """Set the individual front-panel key lock.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_key_keylock(self) -> None:
+        """Query the individual front-panel key lock.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     @property
     def keylock_enabled(self) -> bool:
         """Query enable/disable state of front panel keys in remote mode.
 
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+
         Returns
         -------
         enable : bool
             Enabled/disabled state of the front panel lock
-
-        Notes
-        -----
-        Each read or assignment performs VISA I/O and can raise communication
-        errors.
         """
         cmd = ":SYST:KLOC:STAT?"
         response = self._query(":SYST:KLOC:STAT?")
@@ -1519,9 +1763,19 @@ class dp800:
         self._write(cmd)
 
     def set_language(self) -> None:
+        """Set the language.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_language(self) -> None:
+        """Query the language.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_local(self) -> None:
@@ -1529,27 +1783,67 @@ class dp800:
         self._write(":SYST:LOC")
 
     def set_lock(self) -> None:
+        """Set the instrument lock state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_lock(self) -> None:
+        """Query the instrument lock state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_on_off_sync(self) -> None:
+        """Set the output synchronization.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_on_off_sync(self) -> None:
+        """Query the output synchronization.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_otp_enable(self) -> None:
+        """Set the overtemperature protection enable state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_otp_enable(self) -> None:
+        """Query the overtemperature protection enable state.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_power_on_config_mode(self) -> None:
+        """Set the power on config mode.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_power_on_config_mode(self) -> None:
+        """Query the power on config mode.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_remote(self) -> None:
@@ -1557,38 +1851,66 @@ class dp800:
         self._write(":SYST:REM")
 
     def set_brightness(self) -> None:
+        """Set the brightness.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_brightness(self) -> None:
+        """Query the brightness.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def set_screen_saver_enable(self) -> None:
+        """Set the screen saver enable.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     @property
     def temperature_test_result(self) -> float:
         """Query the self-test result of the temperature.
 
+        Each access performs VISA I/O and can raise communication errors.
+
         Returns
         -------
         temperature : float
             Temperature in degrees Celsius.
-
-        Notes
-        -----
-        Each access performs VISA I/O and can raise communication errors.
         """
         temperature = float(self._query(":SYST:SELF:TEST:TEMP?"))
 
         return temperature
 
     def set_track_mode(self) -> None:
+        """Set the tracking mode.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_track_mode(self) -> None:
+        """Query the tracking mode.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     def get_scpi_version(self) -> None:
+        """Query the SCPI version.
+
+        This operation is not implemented. A warning is emitted and no
+        instrument command is sent.
+        """
         warnings.warn("Not implemented.")
 
     # --- TIMEr commands ---

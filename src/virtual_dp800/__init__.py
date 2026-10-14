@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+"""Public virtual driver and physical channel views."""
+
 from importlib.metadata import PackageNotFoundError, version
 
 # get version if package has been installed

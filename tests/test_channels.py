@@ -7,15 +7,15 @@ from unittest.mock import MagicMock
 
 import pyvisa
 
-from dp800 import DP800Channel, dp800
-from virtual_dp800 import dp800 as VirtualDP800
+from dp800 import DP800Channel, DP800
+from virtual_dp800 import DP800 as VirtualDP800
 
 from test_driver import FakeResource
 
 
 class ChannelTests(unittest.TestCase):
     def setUp(self):
-        self.supply = dp800()
+        self.supply = DP800()
         self.resource = FakeResource()
         self.manager = MagicMock(spec=pyvisa.ResourceManager)
         self.manager.open_resource.return_value = self.resource

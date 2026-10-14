@@ -14,7 +14,7 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `src/dp800/channel.py`: DP800Channel views shared by both drivers. Channel
   objects delegate setpoint/output commands and measurements with an explicit
   channel number. They share the parent connection and expose no lifecycle API.
-- Both packages export a lowercase `dp800` class through their `__init__.py` and
+- Both packages export a `DP800` class through their `__init__.py` and
   obtain `__version__` through `importlib.metadata` for the `rigol_dp800`
   distribution, with a `0.0.0` fallback.
 - `pyproject.toml`: project metadata, Python support, dependencies (`pyvisa` and
@@ -34,7 +34,10 @@ no CI configuration or configured formatter, linter, or type checker.
   explicitly changes supported versions. Do not introduce newer syntax or APIs
   without updating the compatibility contract.
 - Follow the existing four-space indentation, snake_case methods, SCPI family
-  grouping, and NumPy-style docstrings with parameters and return values.
+  grouping, and NumPy-style docstrings with parameters and return values. Put descriptive
+  context at the top of docstrings; avoid a Notes heading. Group dunder methods
+  at the top of each class, followed by connection lifecycle, channel discovery,
+  and SCPI command families.
 - Keep public method names, signatures, optional-channel behavior, and response
   types compatible unless the requested change requires otherwise. Check actual
   implementations as well as docstrings: some disagree, such as `measure()`

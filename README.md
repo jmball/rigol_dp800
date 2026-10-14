@@ -19,9 +19,9 @@ hardware access may require additional drivers or backend configuration.
 ## Channels
 
 ```python
-from dp800 import dp800
+from dp800 import DP800
 
-with dp800() as supply:
+with DP800() as supply:
     supply.connect("TCPIP0::192.0.2.1::INSTR")  # Use your instrument's VISA name.
     ch1 = supply.channels[1]
     ch1.voltage = 5.0

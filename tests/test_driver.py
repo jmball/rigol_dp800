@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pyvisa
 from pyvisa.resources import MessageBasedResource, Resource
 
-from dp800 import dp800
-from virtual_dp800 import dp800 as VirtualDP800
+from dp800 import DP800
+from virtual_dp800 import DP800 as VirtualDP800
 
 
 class FakeResource(MessageBasedResource):
@@ -56,7 +56,7 @@ class FakeResource(MessageBasedResource):
 
 class ConnectionTests(unittest.TestCase):
     def setUp(self):
-        self.driver = dp800()
+        self.driver = DP800()
         self.resource = FakeResource()
         self.manager = MagicMock(spec=pyvisa.ResourceManager)
         self.manager.open_resource.return_value = self.resource
@@ -241,7 +241,7 @@ class ConnectionTests(unittest.TestCase):
         with patch.object(
             pyvisa, "ResourceManager", return_value=self.manager
         ) as factory:
-            driver = dp800()
+            driver = DP800()
             factory.assert_not_called()
             driver.connect("TCPIP::example::INSTR")
             factory.assert_called_once_with()
