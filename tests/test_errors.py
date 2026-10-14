@@ -171,6 +171,40 @@ class ErrorTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not connected"):
             self.driver.get_errors()
 
+    def test_get_errors_preserves_batched_error_responses(self):
+        self.connect()
+        for batch in (
+            '-222,"Invalid channel";-221,"Settings conflict"',
+            '-222,"Invalid channel",-221,"Settings conflict"',
+        ):
+            with self.subTest(batch=batch):
+                self.resource.queued_errors = [batch]
+                self.assertEqual(self.driver.get_errors(), [batch])
+                self.assertEqual(self.driver.get_errors(), [])
+
+    def test_error_query_timeout_does_not_recursively_check_errors(self):
+        self.connect()
+        error = pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout)
+        self.resource.diagnostic_error = error
+        before = len(self.resource.error_queries)
+        with self.assertRaises(pyvisa.errors.VisaIOError) as raised:
+            self.driver.get_errors()
+        self.assertIs(raised.exception, error)
+        self.assertEqual(len(self.resource.error_queries), before + 1)
+
+    def test_query_flag_disables_checks_without_consuming_queued_errors(self):
+        self.connect()
+        self.resource.responses["*ESR?"] = "20"
+        errors = ['-222,"Invalid channel"']
+        self.resource.queued_errors = list(errors)
+        before = len(self.resource.error_queries)
+        self.assertEqual(self.driver._query("*ESR?", check_errors=False), "20")
+        self.assertEqual(len(self.resource.error_queries), before)
+        self.assertEqual(self.driver.get_errors(), errors)
+        self.driver.disconnect()
+        with self.assertRaisesRegex(RuntimeError, "not connected"):
+            self.driver._query("*ESR?", check_errors=False)
+
     def test_normal_error_query_failure_is_visible(self):
         self.connect()
         self.resource.queued_errors = ["malformed"]

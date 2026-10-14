@@ -164,9 +164,11 @@ class ConnectionTests(unittest.TestCase):
                         check=True,
                     )
 
-    def test_configuration_precedes_io_and_publication_without_reset(self):
+    def test_configuration_and_resource_assignment_precede_queue_read_without_reset(
+        self,
+    ):
         def check_initialization():
-            self.assertIsNone(self.driver._instr)
+            self.assertIs(self.driver._instr, self.resource)
             self.assertEqual(self.resource.encoding, "ascii")
             self.assertEqual(self.resource.read_termination, "\n")
             self.assertEqual(self.resource.write_termination, "\n")

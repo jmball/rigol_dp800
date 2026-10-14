@@ -93,7 +93,8 @@ class DP800:
     ) -> None:
         """Open and initialize a connection without resetting the instrument.
 
-        Stale errors are read and cleared before _instr is assigned. Call
+        The resource is assigned to _instr before stale errors are read and
+        cleared. A failure clears _instr and closes the resource. Call
         set_remote() explicitly if remote mode is desired. Read identity
         explicitly if identification is required; connection logging is left
         to the caller.
@@ -153,8 +154,10 @@ class DP800:
             resource = manager.open_resource(resource_name, **resource_kwargs)
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
-            self.get_errors(_resource=resource)
+            self._instr = resource
+            self.get_errors()
         except BaseException:
+            self._instr = None
             if resource is not None:
                 try:
                     resource.close()
@@ -164,7 +167,6 @@ class DP800:
                         exc_info=True,
                     )
             raise
-        self._instr = resource
 
     def disconnect(self) -> None:
         """Disable outputs, return to local mode, and release the connection.
@@ -251,18 +253,23 @@ class DP800:
         self._check_errors()
         return count
 
-    def _query(self, command: str) -> str:
+    def _query(self, command: str, *, check_errors: bool = True) -> str:
         """Read a query response, then check the instrument error queue.
 
         A VISA timeout triggers best-effort error diagnostics using the configured
         PyVISA timeout. Instrument errors are chained from the original timeout.
         Empty, malformed, or failed diagnostics preserve the original exception.
         This recovery attempt does not guarantee response synchronization.
+        Set check_errors=False for error-queue queries to prevent recursion in
+        both normal checking and timeout diagnostics.
 
         Parameters
         ----------
         command : str
             SCPI command to send to the instrument.
+        check_errors : bool, optional
+            Whether to inspect the error queue after a response or a timeout.
+            Defaults to True; get_errors() disables it for its own queries.
 
         Returns
         -------
@@ -274,7 +281,10 @@ class DP800:
         try:
             response = self._instr.query(command)
         except pyvisa.errors.VisaIOError as original:
-            if original.error_code != pyvisa.constants.StatusCode.error_timeout:
+            if (
+                not check_errors
+                or original.error_code != pyvisa.constants.StatusCode.error_timeout
+            ):
                 raise
             try:
                 errors = self.get_errors()
@@ -283,7 +293,8 @@ class DP800:
             if errors:
                 raise InstrumentError("\n".join(errors)) from original
             raise
-        self._check_errors()
+        if check_errors:
+            self._check_errors()
         return response
 
     def _check_errors(self) -> None:
@@ -1681,30 +1692,22 @@ class DP800:
         """
         warnings.warn("Not implemented.")
 
-    def get_errors(self, *, _resource: MessageBasedResource | None = None) -> list[str]:
+    def get_errors(self) -> list[str]:
         """Read and remove queued errors until the instrument reports no error.
 
         Error responses are returned unchanged, excluding the final zero-code
-        response. Direct VISA queries avoid recursive automatic error checks.
+        response. Each response is preserved whole, including any batched error
+        entries. The query wrapper disables error checks to prevent recursion.
         The configured VISA timeout and query delay are used without overrides.
-
-        Parameters
-        ----------
-        _resource : MessageBasedResource, optional
-            Internal connection-initialization resource, used before publishing
-            the connection. Normally omitted to read this driver's instrument.
 
         Returns
         -------
         errors : list of str
             Raw nonzero error responses, or an empty list when no errors exist.
         """
-        resource = self._instr if _resource is None else _resource
-        if resource is None:
-            raise RuntimeError(NOT_CONNECTED_MESSAGE)
         errors: list[str] = []
         while True:
-            response = resource.query(":SYST:ERR?")
+            response = self._query(":SYST:ERR?", check_errors=False)
             code, separator, message = response.partition(",")
             if (
                 not separator

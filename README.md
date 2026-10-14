@@ -60,9 +60,11 @@ to return `0.0`, including for `"ALL"`.
 
 ## Instrument errors
 
-`connect()` clears stale errors before making the connection available. Call
+`connect()` establishes the connection, then clears stale errors. Call
 `set_remote()` afterward if you want remote mode and restricted front-panel
 controls; `connect()` does not send a mode-change command.
+The resource is assigned before queue clearing and is closed and cleared again
+if initialization fails.
 Each successful write and each successfully read query response
 is followed by `get_errors()`, which reads `:SYST:ERR?` until the instrument
 reports no error. Nonzero entries raise `InstrumentError`. Its message contains
@@ -81,6 +83,15 @@ the caller may need to reconnect before continuing.
 `get_errors()` returns the raw error responses as a list, or an empty list when
 there are none. The virtual driver returns an empty list without diagnostic I/O.
 Reading errors consumes them; there is no separate clearing operation.
+Each response is retained whole, including any batched error messages. The
+instrument guide documents code/message responses without specifying whether
+one query consumes a single entry or the whole queue, so reads continue until
+the zero-code response.
+
+All queries use the same connection guard in `_query()`. Error-queue queries
+pass `check_errors=False` to prevent recursive checks and timeout diagnostics.
+Successful normal queries still check the queue: receiving a valid response
+does not establish that no device or previously queued errors exist.
 
 ## Building distributions
 

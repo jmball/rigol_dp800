@@ -17,6 +17,7 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - InstrumentError and error-queue handling live in the hardware driver module.
   get_errors() is the public consuming queue-read operation; there is no separate
   error helper module or manual diagnostic timeout/delay policy.
+  It takes no resource argument and uses _query(check_errors=False).
 - Both packages export a `DP800` class through their `__init__.py` and
   obtain `__version__` through `importlib.metadata` for the `rigol_dp800`
   distribution, with a `0.0.0` fallback.
@@ -109,7 +110,8 @@ documented by the parent driver, while leaving enforcement to the instrument.
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-and clears stale error entries before publishing `self._instr`. Remote mode is
+sets self._instr, and clears stale error entries. Initialization failures clear
+the attribute and close the resource. Remote mode is
 an explicit caller operation through set_remote(). Identity queries
 and connection logging are caller responsibilities; read identity explicitly
 when identification is needed.
@@ -123,9 +125,12 @@ timeout triggers best-effort diagnostics using unchanged resource timeout/delay
 settings.
 Instrument errors are chained from the original timeout; empty, malformed, or
 failed diagnostics preserve it. No automatic retry or stream recovery occurs.
-get_errors() bypasses the wrappers to avoid recursion and reads until the
-zero-code response. It returns raw nonzero responses; the virtual equivalent
-returns an empty list. Mock both normal and error-query responses.
+get_errors() uses _query(check_errors=False) to disable both automatic checks
+and timeout diagnostics, and reads until the zero-code response. It returns raw
+nonzero responses whole, including any batched messages; the virtual equivalent
+returns an empty list. Successful normal queries still monitor the queue, since
+a valid reply does not guarantee no pending device errors. Mock both normal and
+error-query responses, including error-query timeout recursion prevention.
 Connecting twice raises until disconnect.
 Opening options and resource attributes are passed directly to PyVISA for
 validation and configuration. PyVISA handles cleanup when open_resource()
