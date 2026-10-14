@@ -16,7 +16,6 @@ import pyvisa
 from pyvisa.resources import MessageBasedResource, Resource
 
 from .channel import DP800Channel
-from .errors import InstrumentError, _check_errors, _drain_errors, _read_error
 
 # Fixed SCPI framing used by the driver, shared by all connections.
 ENCODING: Final = "ascii"
@@ -34,6 +33,10 @@ NOT_CONNECTED_MESSAGE: Final = "Instrument is not connected."
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+
+class InstrumentError(RuntimeError):
+    """Raw error-queue responses reported by the instrument."""
 
 
 class DP800:
@@ -150,9 +153,11 @@ class DP800:
             resource = manager.open_resource(resource_name, **resource_kwargs)
             if not isinstance(resource, MessageBasedResource):
                 raise TypeError("DP800 requires a message-based VISA resource.")
-            _drain_errors(resource)
+            self.get_errors(_resource=resource)
             resource.write(":SYST:REM")
-            _check_errors(resource, ":SYST:REM")
+            errors = self.get_errors(_resource=resource)
+            if errors:
+                raise InstrumentError("\n".join(errors))
         except BaseException:
             if resource is not None:
                 try:
@@ -212,9 +217,10 @@ class DP800:
 
     @property
     def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only views for channel numbers 1 - 3, without model discovery.
+        """Read-only mapping of read/write channel views for numbers 1 - 3.
 
-        Objects are stable across reconnects and always use the parent's current
+        Mapping entries cannot be replaced, but each channel's settings can be
+        read and assigned. Objects survive reconnects and use the parent's current
         connection. Their presence does not guarantee the instrument supports
         that channel; unsupported commands are reported through the error queue.
 
@@ -246,14 +252,14 @@ class DP800:
         if self._instr is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
         count = self._instr.write(command)
-        _check_errors(self._instr, command)
+        self._check_errors()
         return count
 
     def _query(self, command: str) -> str:
         """Read a query response, then check the instrument error queue.
 
-        A VISA timeout triggers best-effort error diagnostics with a 500 ms
-        total deadline. Instrument errors are chained from the original timeout.
+        A VISA timeout triggers best-effort error diagnostics using the configured
+        PyVISA timeout. Instrument errors are chained from the original timeout.
         Empty, malformed, or failed diagnostics preserve the original exception.
         This recovery attempt does not guarantee response synchronization.
 
@@ -275,14 +281,20 @@ class DP800:
             if original.error_code != pyvisa.constants.StatusCode.error_timeout:
                 raise
             try:
-                errors = _drain_errors(self._instr, timeout_ms=500)
+                errors = self.get_errors()
             except Exception:
                 errors = []
             if errors:
-                raise InstrumentError(command, errors) from original
+                raise InstrumentError("\n".join(errors)) from original
             raise
-        _check_errors(self._instr, command)
+        self._check_errors()
         return response
+
+    def _check_errors(self) -> None:
+        """Raise the raw instrument error responses if the queue is nonempty."""
+        errors = self.get_errors()
+        if errors:
+            raise InstrumentError("\n".join(errors))
 
     # --- ANALyser commands ---
 
@@ -1673,20 +1685,40 @@ class DP800:
         """
         warnings.warn("Not implemented.")
 
-    def get_error(self) -> tuple[int, str]:
-        """Read and remove one entry from the instrument's error queue.
+    def get_errors(self, *, _resource: MessageBasedResource | None = None) -> list[str]:
+        """Read and remove queued errors until the instrument reports no error.
 
-        This direct diagnostic query does not trigger automatic queue draining.
-        Normal commands already drain and raise queued errors after completion.
+        Error responses are returned unchanged, excluding the final zero-code
+        response. Direct VISA queries avoid recursive automatic error checks.
+        The configured VISA timeout and query delay are used without overrides.
+
+        Parameters
+        ----------
+        _resource : MessageBasedResource, optional
+            Internal connection-initialization resource, used before publishing
+            the connection. Normally omitted to read this driver's instrument.
 
         Returns
         -------
-        error : tuple of int and str
-            Error code and message. Code zero indicates an empty queue.
+        errors : list of str
+            Raw nonzero error responses, or an empty list when no errors exist.
         """
-        if self._instr is None:
+        resource = self._instr if _resource is None else _resource
+        if resource is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        return _read_error(self._instr)
+        errors: list[str] = []
+        while True:
+            response = resource.query(":SYST:ERR?")
+            code, separator, message = response.partition(",")
+            if (
+                not separator
+                or not message.strip().startswith('"')
+                or not message.strip().endswith('"')
+            ):
+                raise ValueError(response)
+            if int(code) == 0:
+                return errors
+            errors.append(response)
 
     def set_key_keylock(self) -> None:
         """Set the individual front-panel key lock.

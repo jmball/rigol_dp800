@@ -111,7 +111,7 @@ class DP800:
 
     @property
     def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only, one-based channel mapping with stable placeholder objects.
+        """Read-only mapping containing stable read/write placeholder channels.
 
         Returns
         -------
@@ -163,7 +163,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_apply(
@@ -202,7 +202,7 @@ class DP800:
         #     resp = float(self._instr.query(cmd))
 
         #     if self.check_errors is True:
-        #         self.get_error()
+        #         self.get_errors()
 
         #     return resp
         # elif (channel is None) & (function is not None):
@@ -213,14 +213,14 @@ class DP800:
         #     resp = self._instr.query(cmd)
 
         #     if self.check_errors is True:
-        #         self.get_error()
+        #         self.get_errors()
 
         #     return resp
         # else:
         #     ch, rating, voltage, current = self._instr.query(cmd).split(",")
 
         #     if self.check_errors is True:
-        #         self.get_error()
+        #         self.get_errors()
 
         #     return ch, rating, float(voltage), float(current)
         return 0.0
@@ -251,7 +251,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_delay_cycles(self) -> str:
@@ -267,7 +267,7 @@ class DP800:
         # resp = self._instr.query(cmd).split(",")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # if len(resp) == 1:
         #     return resp[0]
@@ -291,7 +291,7 @@ class DP800:
         # endstate = self._instr.query(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return endstate
         return ""
@@ -312,7 +312,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     @property
@@ -332,7 +332,7 @@ class DP800:
         # groups = int(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return groups
         return 0
@@ -353,7 +353,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_delay_parameters(self) -> None:
@@ -455,7 +455,7 @@ class DP800:
         # self._instr.write("*CLS")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     @property
@@ -472,7 +472,7 @@ class DP800:
         # value = int(self._instr.query("*ESE?"))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return value
         return 0
@@ -523,7 +523,7 @@ class DP800:
         # idn = self._instr.query("*IDN?").split(",")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return idn
         return "Virtual Rigol DP800"
@@ -539,7 +539,7 @@ class DP800:
         # self._instr.write("*OPC")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_opc(self) -> int:
@@ -556,7 +556,7 @@ class DP800:
         # opc = int(self._instr.query("*OPC?"))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return opc
         return 0
@@ -576,7 +576,7 @@ class DP800:
         # options = self._instr.query("*OPT?")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return options
         return [""]
@@ -599,7 +599,7 @@ class DP800:
         # value = int(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return value
         return 0
@@ -622,7 +622,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def recall_setup(self, number: int) -> None:
@@ -639,7 +639,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def reset(self) -> None:
@@ -651,7 +651,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def save_setup(self, number: int) -> None:
@@ -668,7 +668,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     @property
@@ -734,7 +734,7 @@ class DP800:
         # self._instr.write("*TRG")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     @property
@@ -751,7 +751,7 @@ class DP800:
         # result = self._instr.query("*TST?").split(",")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return result
         return []
@@ -764,7 +764,7 @@ class DP800:
         # self._instr.write("*WAI")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     # --- INITiate command ---
@@ -778,7 +778,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     # --- INSTrument commands ---
@@ -803,7 +803,7 @@ class DP800:
         #     channels = channels[0]
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return channels
         return ""
@@ -828,7 +828,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     @property
@@ -852,7 +852,7 @@ class DP800:
         # channel = int(self._instr.query(":INST:NSEL?"))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return channel
         return 0
@@ -878,7 +878,7 @@ class DP800:
         # self._instr.write(f":INST CH{channel}")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     # --- LIC commands ---
@@ -898,7 +898,7 @@ class DP800:
         # self._instr.write(f":LIC:SET {options_licence}")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     # --- MEASure commands ---
@@ -934,7 +934,7 @@ class DP800:
         #     values = values[0]
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return values
         return 0.0
@@ -971,7 +971,7 @@ class DP800:
         # mode = self._instr.query(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return mode
         return ""
@@ -1010,7 +1010,7 @@ class DP800:
         #     ocp_alarm = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return ocp_alarm
         return False
@@ -1031,7 +1031,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_ocp_enable(self, enable: bool, channel: int | None = None) -> None:
@@ -1059,7 +1059,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_ocp_enable(self, channel: int | None = None) -> bool:
@@ -1088,7 +1088,7 @@ class DP800:
         #     enable = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return enable
         return False
@@ -1117,7 +1117,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_ocp_value(self, channel: int | None = None) -> float:
@@ -1146,7 +1146,7 @@ class DP800:
         # value = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return value
         return 0.0
@@ -1185,7 +1185,7 @@ class DP800:
         #     ovp_alarm = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return ovp_alarm
         return False
@@ -1206,7 +1206,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_ovp_enable(self, enable: bool, channel: int | None = None) -> None:
@@ -1234,7 +1234,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_ovp_enable(self, channel: int | None = None) -> bool:
@@ -1263,7 +1263,7 @@ class DP800:
         #     enable = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return enable
         return False
@@ -1292,7 +1292,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_ovp_value(self, channel: int | None = None) -> float:
@@ -1321,7 +1321,7 @@ class DP800:
         # value = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return value
         return 0.0
@@ -1362,7 +1362,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_output_sense_enable(self, channel: int | None = None) -> bool:
@@ -1392,7 +1392,7 @@ class DP800:
         #     enable = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return enable
         return False
@@ -1419,7 +1419,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_output_enable(self, channel: int | None = None) -> bool:
@@ -1445,7 +1445,7 @@ class DP800:
         #     enable = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return enable
         return False
@@ -1523,7 +1523,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_current(self, channel: int | None = None) -> float:
@@ -1545,7 +1545,7 @@ class DP800:
         # current = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return current
         return 0.0
@@ -1630,7 +1630,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def get_voltage(self, channel: int | None = None) -> float:
@@ -1652,7 +1652,7 @@ class DP800:
         # voltage = float(self._instr.query(cmd))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return voltage
         return 0.0
@@ -1770,15 +1770,15 @@ class DP800:
         """
         pass
 
-    def get_error(self) -> tuple[int, str]:
-        """Return an empty error-queue placeholder without hardware I/O.
+    def get_errors(self) -> list[str]:
+        """Return an empty error queue without hardware I/O.
 
         Returns
         -------
-        error : tuple of int and str
-            Zero and 'No error'; the virtual driver has no instrument queue.
+        errors : list of str
+            Empty list; the virtual driver has no instrument error queue.
         """
-        return 0, "No error"
+        return []
 
     def set_key_keylock(self) -> None:
         """Set the individual front-panel key lock.
@@ -1813,7 +1813,7 @@ class DP800:
         #     enable = False
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return enable
         return False
@@ -1837,7 +1837,7 @@ class DP800:
         # self._instr.write(cmd)
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_language(self) -> None:
@@ -1862,7 +1862,7 @@ class DP800:
         # self._instr.write(":SYST:LOC")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_lock(self) -> None:
@@ -1929,7 +1929,7 @@ class DP800:
         # self._instr.write(":SYST:REM")
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
         pass
 
     def set_brightness(self) -> None:
@@ -1967,7 +1967,7 @@ class DP800:
         # temperature = float(self._instr.query(":SYST:SELF:TEST:TEMP?"))
 
         # if self.check_errors is True:
-        #     self.get_error()
+        #     self.get_errors()
 
         # return temperature
         return 0.0

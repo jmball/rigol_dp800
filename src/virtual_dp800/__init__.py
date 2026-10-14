@@ -12,4 +12,4 @@ except PackageNotFoundError:
 
 from .virtual_dp800 import *
 from dp800.channel import DP800Channel as DP800Channel
-from dp800.errors import InstrumentError as InstrumentError
+from dp800.dp800 import InstrumentError as InstrumentError

@@ -137,7 +137,7 @@ class ChannelTests(unittest.TestCase):
         self.assertIs(self.supply.channels[3], channel3)
         with self.assertRaises(InstrumentError) as raised:
             channel3.voltage = 5.0
-        self.assertEqual(raised.exception.errors, ((-222, "Invalid channel"),))
+        self.assertEqual(str(raised.exception), '-222,"Invalid channel"')
         self.assertIn(":SOUR3:VOLT 5.0", replacement.commands)
         self.assertNotIn("*IDN?", replacement.commands)
 

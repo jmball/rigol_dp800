@@ -27,11 +27,11 @@ class ErrorTests(unittest.TestCase):
         original = pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout)
         query = self.resource.query
 
-        def scripted_query(command, delay=None):
+        def scripted_query(command):
             if command == ":MEAS?":
                 self.resource.io_events.append(command)
                 raise original
-            return query(command, delay=delay)
+            return query(command)
 
         return original, patch.object(
             self.resource, "query", side_effect=scripted_query
@@ -49,7 +49,7 @@ class ErrorTests(unittest.TestCase):
         self.resource.responses[":MEAS?"] = "1.2"
         self.assertEqual(self.driver.measure(), "1.2")
 
-    def test_connect_closes_resource_if_queue_cannot_be_drained(self):
+    def test_connect_closes_resource_if_queue_cannot_be_read(self):
         for failure in (OSError("Queue unavailable"), ValueError("Bad response")):
             with self.subTest(failure=failure):
                 self.setUp()
@@ -66,58 +66,47 @@ class ErrorTests(unittest.TestCase):
         self.resource.errors_after_write[":SYST:REM"] = ['-222,"Remote mode rejected"']
         with self.assertRaises(InstrumentError) as raised:
             self.connect()
-        self.assertEqual(raised.exception.command, ":SYST:REM")
-        self.assertEqual(raised.exception.errors, ((-222, "Remote mode rejected"),))
+        self.assertEqual(str(raised.exception), '-222,"Remote mode rejected"')
         self.assertEqual(self.resource.closed, 1)
         self.assertIsNone(self.driver._instr)
 
-    def test_writes_drain_all_errors_and_keep_the_command(self):
+    def test_writes_report_only_raw_error_responses(self):
         self.connect()
-        self.resource.errors_after_write[":VOLT 5.0"] = [
-            '-222,"Data out of range"',
-            '-221,"Settings conflict, voltage"',
-        ]
+        errors = [' -222 , "Data out of range"', '-221,"Settings conflict, voltage"']
+        self.resource.errors_after_write[":VOLT 5.0"] = errors
         with self.assertRaises(InstrumentError) as raised:
             self.driver.set_voltage(5.0)
-        self.assertEqual(raised.exception.command, ":VOLT 5.0")
-        self.assertEqual(
-            raised.exception.errors,
-            ((-222, "Data out of range"), (-221, "Settings conflict, voltage")),
-        )
-        self.assertIn("-222", str(raised.exception))
-        self.assertIn(":VOLT 5.0", str(raised.exception))
+        self.assertEqual(str(raised.exception), "\n".join(errors))
+        self.assertFalse(hasattr(raised.exception, "command"))
         self.assertEqual(self.resource.queued_errors, [])
         self.assertEqual(self.driver._write("*CLS"), len("*CLS"))
 
-    def test_successful_queries_read_the_response_before_error_checking(self):
+    def test_successful_queries_read_response_before_error_checking(self):
         self.connect()
         self.resource.responses[":MEAS?"] = "1.2"
         self.resource.errors_after_query[":MEAS?"] = ['-222,"Invalid channel"']
         with self.assertRaises(InstrumentError) as raised:
             self.driver.measure()
-        self.assertEqual(raised.exception.errors, ((-222, "Invalid channel"),))
+        self.assertEqual(str(raised.exception), '-222,"Invalid channel"')
         self.assertEqual(
             self.resource.io_events[-3:], [":MEAS?", ":SYST:ERR?", ":SYST:ERR?"]
         )
 
-    def test_query_timeout_raises_reported_errors_with_original_as_cause(self):
+    def test_query_timeout_reports_errors_using_configured_visa_settings(self):
         self.connect()
         self.resource.timeout = 1234
-        self.resource.query_delay = 60
+        self.resource.query_delay = 0.1
         self.resource.queued_errors = ['-222,"Invalid channel"']
         original, query_patch = self.timeout_query()
         with query_patch:
             with self.assertRaises(InstrumentError) as raised:
                 self.driver.measure()
         self.assertIs(raised.exception.__cause__, original)
-        self.assertEqual(raised.exception.command, ":MEAS?")
-        self.assertEqual(raised.exception.errors, ((-222, "Invalid channel"),))
+        self.assertEqual(str(raised.exception), '-222,"Invalid channel"')
         self.assertEqual(self.resource.timeout, 1234)
-        self.assertEqual(self.resource.query_delay, 60)
-        self.assertEqual(self.resource.error_query_delays[-2:], [0.0, 0.0])
-        self.assertTrue(
-            all(timeout <= 500 for timeout in self.resource.error_queries[-2:])
-        )
+        self.assertEqual(self.resource.query_delay, 0.1)
+        self.assertEqual(self.resource.error_query_delays[-2:], [None, None])
+        self.assertEqual(self.resource.error_queries[-2:], [1234, 1234])
 
     def test_query_timeout_preserved_for_empty_malformed_or_failed_diagnostics(self):
         for result in (
@@ -145,17 +134,6 @@ class ErrorTests(unittest.TestCase):
                 self.assertIs(raised.exception.__cause__, cause)
                 self.assertEqual(self.resource.timeout, 1234)
 
-    def test_diagnostic_deadline_preserves_original_timeout_and_restores_timeout(self):
-        self.connect()
-        self.resource.timeout = 1234
-        self.resource.queued_errors = ['-222,"Invalid channel"']
-        original, query_patch = self.timeout_query()
-        with query_patch, patch("dp800.errors.monotonic", side_effect=[0.0, 0.0, 1.0]):
-            with self.assertRaises(pyvisa.errors.VisaIOError) as raised:
-                self.driver.measure()
-        self.assertIs(raised.exception, original)
-        self.assertEqual(self.resource.timeout, 1234)
-
     def test_non_timeout_query_errors_do_not_run_diagnostics(self):
         self.connect()
         before = list(self.resource.error_queries)
@@ -178,29 +156,23 @@ class ErrorTests(unittest.TestCase):
         self.assertIs(raised.exception, error)
         self.assertEqual(self.resource.error_queries, before)
 
-    def test_error_reader_parses_quotes_commas_and_only_consumes_one_entry(self):
+    def test_get_errors_returns_raw_responses_and_consumes_the_queue(self):
         self.connect()
-        self.resource.queued_errors = [
-            '-222,"Bad value, ""voltage"""',
-            '-221,"Conflict"',
-        ]
-        self.assertEqual(self.driver.get_error(), (-222, 'Bad value, "voltage"'))
-        self.assertEqual(self.driver.get_error(), (-221, "Conflict"))
-        self.assertEqual(self.driver.get_error(), (0, "No error"))
+        errors = ['-222,"Bad value, ""voltage"""', '-221,"Conflict"']
+        self.resource.queued_errors = list(errors)
+        self.assertEqual(self.driver.get_errors(), errors)
+        self.assertEqual(self.driver.get_errors(), [])
         self.resource.queued_errors = [' +0, "No error" \n']
-        self.assertEqual(self.driver.get_error(), (0, "No error"))
-        self.assertEqual(VirtualDP800().get_error(), (0, "No error"))
+        self.assertEqual(self.driver.get_errors(), [])
+        self.assertEqual(VirtualDP800().get_errors(), [])
         self.driver.disconnect()
         with self.assertRaisesRegex(RuntimeError, "not connected"):
-            self.driver.get_error()
+            self.driver.get_errors()
 
-    def test_normal_diagnostic_failure_is_visible_and_queue_draining_is_bounded(self):
+    def test_normal_error_query_failure_is_visible(self):
         self.connect()
         self.resource.queued_errors = ["malformed"]
         with self.assertRaises(ValueError):
-            self.driver.clear_event_registers()
-        self.resource.queued_errors = ['-222,"Error"'] * 100
-        with self.assertRaisesRegex(RuntimeError, "did not empty"):
             self.driver.clear_event_registers()
 
     def test_disconnect_closes_and_attempts_all_commands_despite_instrument_errors(
@@ -216,7 +188,7 @@ class ErrorTests(unittest.TestCase):
         with self.assertLogs("dp800.dp800", level="WARNING"):
             with self.assertRaises(InstrumentError) as raised:
                 self.driver.disconnect()
-        self.assertEqual(raised.exception.command, ":OUTP  CH2,OFF")
+        self.assertEqual(str(raised.exception), '-222,"Invalid channel 2"')
         self.assertIn(":OUTP  CH3,OFF", self.resource.commands)
         self.assertIn(":SYST:LOC", self.resource.commands)
         self.assertEqual(self.resource.closed, 1)

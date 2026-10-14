@@ -47,7 +47,8 @@ clear the corresponding alarm label. Sensing support depends on the model and
 channel.
 
 `channels` is a read-only mapping containing stable views for channel numbers
-1–3. Creating and accessing these views performs no I/O or model discovery.
+1–3. Mapping entries cannot be replaced; the channel instances themselves expose
+read/write settings. Creating and accessing these views performs no I/O or model discovery.
 The instrument determines whether a channel or operation is supported. Channel
 objects survive reconnects and address the parent's current connection; using
 them while disconnected raises `RuntimeError`. Exiting the context manager
@@ -61,22 +62,23 @@ to return `0.0`, including for `"ALL"`.
 
 `connect()` drains stale errors before entering remote mode, then checks remote
 mode for errors. Each successful write and each successfully read query response
-is followed by draining `:SYST:ERR?`. Nonzero entries raise `InstrumentError`,
-which exposes the associated `command` and an `errors` tuple of code/message
-pairs. Checks consume the queue and add communication round trips. A command
-may have executed even if its subsequent error check fails. Queue draining is
-limited to 100 reads.
+is followed by `get_errors()`, which reads `:SYST:ERR?` until the instrument
+reports no error. Nonzero entries raise `InstrumentError`. Its message contains
+only the raw instrument responses, joined with newlines, without command names
+or reformatted error messages. Checks consume the queue and add communication
+round trips. A command may have executed even if its subsequent error check fails.
 
-When a query raises a VISA timeout, the driver attempts error diagnostics with
-a best-effort 500 ms time budget and restores the original resource timeout.
+When a query raises a VISA timeout, the driver attempts error diagnostics using
+the configured PyVISA timeout and query delay, without changing either setting.
 Reported instrument errors raise `InstrumentError` with the original timeout
 as its cause. Empty, malformed, or failed diagnostics re-raise the original
 timeout. This fallback neither retries the command nor guarantees response
 synchronization: a late original response can interfere with diagnostics, and
 the caller may need to reconnect before continuing.
 
-`get_error()` directly reads one error entry without automatic checking. The
-virtual driver returns `(0, "No error")` and performs no diagnostic I/O.
+`get_errors()` returns the raw error responses as a list, or an empty list when
+there are none. The virtual driver returns an empty list without diagnostic I/O.
+Reading errors consumes them; there is no separate clearing operation.
 
 ## Building distributions
 
