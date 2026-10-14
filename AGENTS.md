@@ -80,6 +80,11 @@ The IEEE488.2 identity, options, enable registers, status byte, and power-on
 clear setting are properties. Hardware property access performs fresh VISA I/O.
 The event-register read and OPC synchronization remain explicit methods. The
 virtual properties preserve their fixed placeholder values and return types.
+Delay end state and group count, trigger coupling, selected channel, and front
+panel keylock are also read/write properties. Self-test results and temperature
+test results are read-only properties. Assigning selected_channel changes the
+channel used by subsequent commands that omit a channel argument. Delay cycles,
+channel-specific settings, and unfinished placeholders remain methods.
 
 ## Hardware behavior
 

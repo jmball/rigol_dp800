@@ -435,6 +435,98 @@ class ConnectionTests(unittest.TestCase):
             VirtualDP800().connect("virtual")
         virtual_log_info.assert_not_called()
 
+    def test_additional_properties_query_and_parse_fresh_values(self):
+        self.connect()
+        for name, command, response, expected in (
+            ("delay_end_state", ":DELAY:ENDS?", "LAST", "LAST"),
+            ("delay_groups", ":DELAY:GROUP?", "12", 12),
+            ("keylock_enabled", ":SYST:KLOC:STAT?", "ON", True),
+            ("keylock_enabled", ":SYST:KLOC:STAT?", "OFF", False),
+            ("trigger_coupling_channels", ":INST:COUP?", "ALL", "ALL"),
+            ("trigger_coupling_channels", ":INST:COUP?", "NONE", "NONE"),
+            (
+                "trigger_coupling_channels",
+                ":INST:COUP?",
+                "CH1:30V/3A,CH2:30V/3A",
+                ["CH1:30V/3A", "CH2:30V/3A"],
+            ),
+            ("selected_channel", ":INST:NSEL?", "2", 2),
+            ("self_test_results", "*TST?", "PASS,PASS,FAIL", ["PASS", "PASS", "FAIL"]),
+            ("temperature_test_result", ":SYST:SELF:TEST:TEMP?", "23.67", 23.67),
+        ):
+            with self.subTest(property=name, response=response):
+                self.resource.responses[command] = response
+                self.assertEqual(getattr(self.driver, name), expected)
+                self.assertEqual(getattr(self.driver, name), expected)
+                self.assertEqual(self.resource.commands[-2:], [command, command])
+                error = OSError("Query failed")
+                self.resource.query_error = error
+                with self.assertRaises(OSError) as raised:
+                    getattr(self.driver, name)
+                self.assertIs(raised.exception, error)
+                self.resource.query_error = None
+                self.driver.disconnect()
+                with self.assertRaisesRegex(RuntimeError, "not connected"):
+                    getattr(self.driver, name)
+                self.connect()
+
+    def test_additional_property_assignments_preserve_commands(self):
+        self.connect()
+        for name, value, command in (
+            ("delay_end_state", "ON", ":DELAY:ENDS ON"),
+            ("delay_end_state", "OFF", ":DELAY:ENDS OFF"),
+            ("delay_end_state", "LAST", ":DELAY:ENDS LAST"),
+            ("delay_groups", 12, ":DELAY:GROUP 12"),
+            ("keylock_enabled", True, ":SYST:KLOC:STAT ON"),
+            ("keylock_enabled", False, ":SYST:KLOC:STAT OFF"),
+            ("trigger_coupling_channels", ["CH1", "CH2"], ":INST:COUP CH1,CH2"),
+            ("trigger_coupling_channels", "ALL", ":INST:COUP ALL"),
+            ("trigger_coupling_channels", "NONE", ":INST:COUP NONE"),
+            ("selected_channel", 2, ":INST CH2"),
+        ):
+            with self.subTest(property=name, value=value):
+                setattr(self.driver, name, value)
+                self.assertEqual(self.resource.commands[-1], command)
+                error = OSError("Write failed")
+                self.resource.write_errors[command] = error
+                with self.assertRaises(OSError) as raised:
+                    setattr(self.driver, name, value)
+                self.assertIs(raised.exception, error)
+                self.resource.write_errors.clear()
+                self.driver.disconnect()
+                with self.assertRaisesRegex(RuntimeError, "not connected"):
+                    setattr(self.driver, name, value)
+                self.connect()
+
+    def test_selected_channel_and_implicit_channel_commands(self):
+        self.connect()
+        self.driver.selected_channel = 2
+        self.driver.set_voltage(5.0)
+        self.driver.set_voltage(3.0, channel=1)
+        self.assertEqual(
+            self.resource.commands[-3:], [":INST CH2", ":VOLT 5.0", ":SOUR1:VOLT 3.0"]
+        )
+
+    def test_additional_virtual_properties_and_read_only_test_results(self):
+        virtual = VirtualDP800()
+        for name, value, expected in (
+            ("delay_end_state", "LAST", ""),
+            ("delay_groups", 12, 0),
+            ("keylock_enabled", True, False),
+            ("trigger_coupling_channels", ["CH1", "CH2"], ""),
+            ("selected_channel", 2, 0),
+        ):
+            with self.subTest(property=name):
+                setattr(virtual, name, value)
+                self.assertEqual(getattr(virtual, name), expected)
+        self.assertEqual(virtual.self_test_results, [])
+        self.assertEqual(virtual.temperature_test_result, 0.0)
+        for driver in (self.driver, virtual):
+            for name in ("self_test_results", "temperature_test_result"):
+                with self.subTest(driver=type(driver), property=name):
+                    with self.assertRaises(AttributeError):
+                        setattr(driver, name, None)
+
     def test_existing_response_types_and_coupling_list(self):
         self.connect()
         self.resource.responses.update(
@@ -453,7 +545,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(self.driver.get_apply(), ("CH1", "30V/3A", 1.2, 0.1))
         self.assertTrue(self.driver.get_ocp())
         self.assertFalse(self.driver.get_ovp())
-        self.driver.set_trigger_coupling_channels(["CH1", "CH2"])
+        self.driver.trigger_coupling_channels = ["CH1", "CH2"]
         self.assertEqual(self.resource.commands[-1], ":INST:COUP CH1,CH2")
 
 

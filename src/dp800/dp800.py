@@ -307,7 +307,28 @@ class dp800:
         else:
             return resp[0], int(resp[1])
 
-    def set_delay_end_state(self, endstate: Literal["ON", "OFF", "LAST"]) -> None:
+    @property
+    def delay_end_state(self) -> str:
+        """Get the state of the instrument when the delayer stops.
+
+        Returns
+        -------
+        endstate : 'ON', 'OFF', 'LAST'
+            State to put instrument in when delayer stops. 'ON' switches on the output,
+            'OFF' switches off the output, and 'LAST' uses the last state.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        """
+        cmd = ":DELAY:ENDS?"
+        endstate = self._query(cmd)
+
+        return endstate
+
+    @delay_end_state.setter
+    def delay_end_state(self, endstate: Literal["ON", "OFF", "LAST"]) -> None:
         """Set the state of the instrument when the delayer stops.
 
         Parameters
@@ -319,21 +340,29 @@ class dp800:
         cmd = f":DELAY:ENDS {endstate}"
         self._write(cmd)
 
-    def get_delay_end_state(self) -> str:
-        """Get the state of the instrument when the delayer stops.
+    @property
+    def delay_groups(self) -> int:
+        """Get the number of output groups of the delayer.
 
         Returns
         -------
-        endstate : 'ON', 'OFF', 'LAST'
-            State to put instrument in when delayer stops. 'ON' switches on the output,
-            'OFF' switches off the output, and 'LAST' uses the last state.
+        groups : int
+            Number of output groups of delayer cycles, i.e. number of times output
+            turns on or off.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        The instrument supports group counts in the range 1 - 2048.
         """
-        cmd = ":DELAY:ENDS?"
-        endstate = self._query(cmd)
+        cmd = f":DELAY:GROUP?"
+        groups = int(self._query(cmd))
 
-        return endstate
+        return groups
 
-    def set_delay_groups(self, groups: int) -> None:
+    @delay_groups.setter
+    def delay_groups(self, groups: int) -> None:
         """Set the number of output groups of the delayer.
 
         Parameters
@@ -344,20 +373,6 @@ class dp800:
         """
         cmd = f":DELAY:GROUP {groups}"
         self._write(cmd)
-
-    def get_delay_groups(self) -> int:
-        """Get the number of output groups of the delayer.
-
-        Returns
-        -------
-        groups : int
-            Number of output groups of delayer cycles, i.e. number of times output
-            turns on or off.
-        """
-        cmd = f":DELAY:GROUP?"
-        groups = int(self._query(cmd))
-
-        return groups
 
     def set_delay_parameters(self) -> None:
         """Set the delayer parameters of the specified group."""
@@ -639,13 +654,18 @@ class dp800:
         """
         self._write("*TRG")
 
-    def get_self_test_results(self) -> list[str]:
+    @property
+    def self_test_results(self) -> list[str]:
         """Get the results of the instrument self-test.
 
         Returns
         -------
         result : list
             List of test results for the top board, bottom board, and fan.
+
+        Notes
+        -----
+        Each access performs VISA I/O and can raise communication errors.
         """
         result = self._query("*TST?").split(",")
 
@@ -664,7 +684,32 @@ class dp800:
 
     # --- INSTrument commands ---
 
-    def set_trigger_coupling_channels(self, channels: str | list[str]) -> None:
+    @property
+    def trigger_coupling_channels(self) -> str | list[str]:
+        """Get trigger coupling channels.
+
+        Only applicable to multi-channel models.
+
+        Returns
+        -------
+        channels : str or list
+            If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
+            where each element is a channel name and rating separated by a `:`.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        Assign "ALL", "NONE", or a list of at least two channel names.
+        """
+        channels = self._query(":INST:COUP?").split(",")
+        if len(channels) == 1:
+            return channels[0]
+
+        return channels
+
+    @trigger_coupling_channels.setter
+    def trigger_coupling_channels(self, channels: str | list[str]) -> None:
         """Set trigger coupling channels.
 
         Only applicable to multi-channel models.
@@ -678,24 +723,35 @@ class dp800:
         cmd += ",".join(channels) if isinstance(channels, list) else channels
         self._write(cmd)
 
-    def get_trigger_coupling_channels(self) -> str | list[str]:
-        """Get trigger coupling channels.
+    @property
+    def selected_channel(self) -> int:
+        """Get the currently selected channel.
 
         Only applicable to multi-channel models.
 
+        The instrument provides two functions for this: NSELct and SELect. NSELect
+        returns a bare number, e.g. 2, whereas SELect returns a channel name and
+        rated ouptut. This method always uses NSELect because fewer characters are
+        exchanged in the query operation.
+
         Returns
         -------
-        channels : str or list
-            If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
-            where each element is a channel name and rating separated by a `:`.
+        channel : int
+            Currently selected channel number.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        Assigning selects the channel used by subsequent commands that omit a
+        channel argument. Only multi-channel models support this property.
         """
-        channels = self._query(":INST:COUP?").split(",")
-        if len(channels) == 1:
-            return channels[0]
+        channel = int(self._query(":INST:NSEL?"))
 
-        return channels
+        return channel
 
-    def set_channel(self, channel: int) -> None:
+    @selected_channel.setter
+    def selected_channel(self, channel: int) -> None:
         """Select the current channel.
 
         Only applicable to multi-channel models.
@@ -711,25 +767,6 @@ class dp800:
             Channel number.
         """
         self._write(f":INST CH{channel}")
-
-    def get_channel(self) -> int:
-        """Get the currently selected channel.
-
-        Only applicable to multi-channel models.
-
-        The instrument provides two functions for this: NSELct and SELect. NSELect
-        returns a bare number, e.g. 2, whereas SELect returns a channel name and
-        rated ouptut. This method always uses NSELect because fewer characters are
-        exchanged in the query operation.
-
-        Parameters
-        ----------
-        channel : int
-            Channel number.
-        """
-        channel = int(self._query(":INST:NSEL?"))
-
-        return channel
 
     # --- LIC commands ---
 
@@ -1363,7 +1400,26 @@ class dp800:
     def get_key_keylock(self) -> None:
         warnings.warn("Not implemented.")
 
-    def set_keylock_enable(self, enable: bool) -> None:
+    @property
+    def keylock_enabled(self) -> bool:
+        """Query enable/disable state of front panel keys in remote mode.
+
+        Returns
+        -------
+        enable : bool
+            Enabled/disabled state of the front panel lock
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        """
+        cmd = ":SYST:KLOC:STAT?"
+        response = self._query(":SYST:KLOC:STAT?")
+        return response == "ON"
+
+    @keylock_enabled.setter
+    def keylock_enabled(self, enable: bool) -> None:
         """Enable/disable front panel keys in remote mode.
 
         Parameters
@@ -1377,18 +1433,6 @@ class dp800:
         else:
             cmd += "OFF"
         self._write(cmd)
-
-    def get_keylock_enable(self) -> bool:
-        """Querey enable/disable state of front panel keys in remote mode.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of the front panel lock
-        """
-        cmd = ":SYST:KLOC:STAT?"
-        response = self._query(":SYST:KLOC:STAT?")
-        return response == "ON"
 
     def set_language(self) -> None:
         warnings.warn("Not implemented.")
@@ -1437,13 +1481,18 @@ class dp800:
     def set_screen_saver_enable(self) -> None:
         warnings.warn("Not implemented.")
 
-    def get_temperature_test_result(self) -> float:
+    @property
+    def temperature_test_result(self) -> float:
         """Query the self-test result of the temperature.
 
         Returns
         -------
         temperature : float
-            Temperature in degrees celcius.
+            Temperature in degrees Celsius.
+
+        Notes
+        -----
+        Each access performs VISA I/O and can raise communication errors.
         """
         temperature = float(self._query(":SYST:SELF:TEST:TEMP?"))
 
