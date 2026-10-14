@@ -87,6 +87,44 @@ class ConnectionTests(unittest.TestCase):
             check=True,
         )
 
+    def test_context_manager_returns_self_and_disconnects(self):
+        with self.driver as driver:
+            self.assertIs(driver, self.driver)
+            self.assertIsNone(driver._instr)
+            self.manager.open_resource.assert_not_called()
+            self.connect()
+        self.assertIsNone(self.driver._instr)
+        self.assertEqual(self.resource.closed, 1)
+        self.assertEqual(
+            self.resource.commands,
+            [
+                ":SYST:REM",
+                ":OUTP  CH1,OFF",
+                ":OUTP  CH2,OFF",
+                ":OUTP  CH3,OFF",
+                ":SYST:LOC",
+            ],
+        )
+        self.manager.close.assert_not_called()
+
+    def test_context_manager_disconnects_on_exception_without_suppressing_it(self):
+        self.connect()
+        error = ValueError("Block failed")
+        with self.assertRaises(ValueError) as raised:
+            with self.driver:
+                raise error
+        self.assertIs(raised.exception, error)
+        self.assertIsNone(self.driver._instr)
+        self.assertEqual(self.resource.closed, 1)
+
+    def test_disconnected_context_manager_does_not_create_manager(self):
+        for driver in (self.driver, VirtualDP800()):
+            with self.subTest(driver=type(driver)):
+                with patch.object(pyvisa, "ResourceManager") as factory:
+                    with driver as entered:
+                        self.assertIs(entered, driver)
+                    factory.assert_not_called()
+
     def test_import_preserves_application_warning_and_logging_configuration(self):
         for package in ("dp800", "virtual_dp800"):
             for capture_warnings in (False, True):
@@ -550,6 +588,27 @@ class ConnectionTests(unittest.TestCase):
 
 
 class VirtualConnectionTests(unittest.TestCase):
+    def test_virtual_context_manager_disconnects_on_normal_and_exceptional_exit(self):
+        for error in (None, ValueError("Block failed")):
+            with self.subTest(error=error):
+                driver = VirtualDP800()
+
+                def use_driver():
+                    with driver as entered:
+                        self.assertIs(entered, driver)
+                        driver.connect("virtual")
+                        self.assertTrue(driver._connected)
+                        if error is not None:
+                            raise error
+
+                if error is None:
+                    use_driver()
+                else:
+                    with self.assertRaises(ValueError) as raised:
+                        use_driver()
+                    self.assertIs(raised.exception, error)
+                self.assertFalse(driver._connected)
+
     def test_virtual_connection_never_opens_or_closes_manager(self):
         manager = MagicMock(spec=pyvisa.ResourceManager)
         driver = VirtualDP800()

@@ -105,8 +105,12 @@ attribute and never explicitly closes managers. Injected managers stay
 caller-owned, and default managers are obtained lazily from PyVISA.
 `disconnect()` attempts to disable outputs on channels 1, 2, and 3 and return to
 local mode, then closes the resource and clears `self._instr` even on failure.
-Repeated disconnect calls are harmless. Account for these side effects
-when designing tests. Use mocks for routine validation; exercise real hardware
+Repeated disconnect calls are harmless. When used as a context manager,
+__enter__ returns the instance
+without connecting, and __exit__ calls disconnect without suppressing block
+exceptions. The virtual driver provides the same context manager API. Account
+for disconnect side effects when designing tests. Use mocks for routine
+validation; exercise real hardware
 only within the user's authorized task and device configuration.
 
 ## Development VM environment

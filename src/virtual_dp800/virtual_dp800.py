@@ -4,6 +4,7 @@
 
 import logging
 import warnings
+from types import TracebackType
 from typing import Any, Literal
 
 import pyvisa
@@ -26,6 +27,19 @@ class dp800:
             Check instrument error status after every command.
         """
         self._connected = False
+
+    def __enter__(self) -> "dp800":
+        """Return this instance without opening a connection."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Disconnect on exit without suppressing exceptions from the block."""
+        self.disconnect()
 
     def connect(
         self,
