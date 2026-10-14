@@ -345,7 +345,29 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_standard_event_enable_register(self, value: int) -> None:
+    @property
+    def standard_event_enable_register(self) -> int:
+        """Get the standard event enable register value.
+
+        Returns
+        -------
+        value : int
+            Register bitmask in the range 0 - 255; assign to enable bits.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+        """
+        # value = int(self._instr.query("*ESE?"))
+
+        # if self.check_errors is True:
+        #     self.get_error()
+
+        # return value
+        return 0
+
+    @standard_event_enable_register.setter
+    def standard_event_enable_register(self, value: int) -> None:
         """Enable bits in the standard event enable register.
 
         Parameters
@@ -361,22 +383,6 @@ class dp800:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
 
-    def get_standard_event_enable_register(self) -> int:
-        """Get the standard event enable register value.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        # value = int(self._instr.query("*ESE?"))
-
-        # if self.check_errors is True:
-        #     self.get_error()
-
-        # return value
-        return 0
-
     def get_standard_event_register(self) -> int:
         """Get the standard event register value.
 
@@ -390,14 +396,18 @@ class dp800:
         # return value
         return 0
 
-    def get_id(self) -> str:
-        """Get instrument identity string.
+    @property
+    def identity(self) -> str:
+        """Get the virtual instrument identity.
 
         Returns
         -------
-        id : list of str
-            List of identification strings consisting of manufacturer, model, serial
-            number, and board version number in order.
+        identity : str
+            Fixed identity string for the virtual instrument.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O.
         """
         # idn = self._instr.query("*IDN?").split(",")
 
@@ -438,7 +448,8 @@ class dp800:
         # return opc
         return 0
 
-    def get_option_installation_status(self) -> list[str]:
+    @property
+    def option_installation_status(self) -> list[str]:
         """Get the status of installed options.
 
         Returns
@@ -446,8 +457,12 @@ class dp800:
         options : list of str
             List of options. If an option is installed its name is returned, otherwise
             the query returns a 0.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O.
         """
-        # options = self._instr.query("*OPT")
+        # options = self._instr.query("*OPT?")
 
         # if self.check_errors is True:
         #     self.get_error()
@@ -455,7 +470,33 @@ class dp800:
         # return options
         return [""]
 
-    def set_power_on_status_clear_bit(self, value: int) -> None:
+    @property
+    def power_on_status_clear_bit(self) -> int:
+        """Get the power-on status clear bit.
+
+        Returns
+        -------
+        value : int
+            Value of power-on status clear bit. Values:
+
+                * 0 : Cleared, status enable registers maintain values at power down.
+                * 1 : Set, all status and enable registers are cleared on power up.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+        """
+        # cmd = f"*PSC?"
+        # value = int(self._instr.query(cmd))
+
+        # if self.check_errors is True:
+        #     self.get_error()
+
+        # return value
+        return 0
+
+    @power_on_status_clear_bit.setter
+    def power_on_status_clear_bit(self, value: int) -> None:
         """Set the power-on status clear bit.
 
         Parameters
@@ -472,26 +513,6 @@ class dp800:
         # if self.check_errors is True:
         #     self.get_error()
         pass
-
-    def get_power_on_status_clear_bit(self) -> int:
-        """Get the power-on status clear bit.
-
-        Returns
-        -------
-        value : int
-            Value of power-on status clear bit. Values:
-
-                * 0 : Cleared, status enable registers maintain values at power down.
-                * 1 : Set, all status and enable registers are cleared on power up.
-        """
-        # cmd = f"*PSC?"
-        # value = int(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_error()
-
-        # return value
-        return 0
 
     def recall_setup(self, number: int) -> None:
         """Recall instrument setup from setting buffer.
@@ -532,7 +553,26 @@ class dp800:
         #     self.get_error()
         pass
 
-    def set_status_byte_enable_register(self, value: int) -> None:
+    @property
+    def status_byte_enable_register(self) -> int:
+        """Get the status byte enable register value.
+
+        Returns
+        -------
+        value : int
+            Register bitmask in the range 0 - 255; assign to enable bits.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+        """
+        # value = int(self._instr.query("*SRE?"))
+
+        # return value
+        return 0
+
+    @status_byte_enable_register.setter
+    def status_byte_enable_register(self, value: int) -> None:
         """Enable bits in the status byte enable register.
 
         Parameters
@@ -548,20 +588,8 @@ class dp800:
         #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
         pass
 
-    def get_status_byte_enable_register(self) -> int:
-        """Get the status byte enable register value.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        # value = int(self._instr.query("*SRE?"))
-
-        # return value
-        return 0
-
-    def get_status_byte_register(self) -> int:
+    @property
+    def status_byte_register(self) -> int:
         """Get the status byte register value.
 
         Querying this register does not clear it.
@@ -570,6 +598,10 @@ class dp800:
         -------
         value : int
             Register value.
+
+        Notes
+        -----
+        Returns a fixed placeholder without hardware I/O.
         """
         # value = int(self._instr.query("*STB?"))
 

@@ -321,7 +321,7 @@ class ConnectionTests(unittest.TestCase):
 
     def test_disconnected_io_raises_clear_error(self):
         with self.assertRaisesRegex(RuntimeError, "not connected"):
-            self.driver.get_id()
+            self.driver.identity
         with self.assertRaisesRegex(RuntimeError, "not connected"):
             self.driver.set_voltage(1)
 
@@ -347,12 +347,89 @@ class ConnectionTests(unittest.TestCase):
         self.driver.reset()
         self.assertEqual(self.resource.commands[-1], "*RST")
 
+    def test_common_command_properties_read_fresh_values(self):
+        self.connect()
+        for name, command, response, expected in (
+            (
+                "identity",
+                "*IDN?",
+                "RIGOL,DP832,serial,version",
+                ["RIGOL", "DP832", "serial", "version"],
+            ),
+            ("standard_event_enable_register", "*ESE?", "10", 10),
+            ("status_byte_enable_register", "*SRE?", "32", 32),
+            ("status_byte_register", "*STB?", "16", 16),
+            ("power_on_status_clear_bit", "*PSC?", "1", 1),
+            ("option_installation_status", "*OPT?", "DP8-LAN,0", "DP8-LAN,0"),
+        ):
+            with self.subTest(property=name):
+                self.resource.responses[command] = response
+                self.assertEqual(getattr(self.driver, name), expected)
+                self.assertEqual(getattr(self.driver, name), expected)
+                self.assertEqual(self.resource.commands[-2:], [command, command])
+                self.driver.disconnect()
+                with self.assertRaisesRegex(RuntimeError, "not connected"):
+                    getattr(self.driver, name)
+                self.connect()
+
+    def test_common_command_property_setters_and_validation(self):
+        self.connect()
+        for name, command, values in (
+            ("standard_event_enable_register", "*ESE", (0, 10, 255)),
+            ("status_byte_enable_register", "*SRE", (0, 32, 255)),
+            ("power_on_status_clear_bit", "*PSC", (0, 1)),
+        ):
+            with self.subTest(property=name):
+                for value in values:
+                    setattr(self.driver, name, value)
+                    self.assertEqual(self.resource.commands[-1], f"{command} {value}")
+                if command != "*PSC":
+                    before = list(self.resource.commands)
+                    for value in (-1, 256):
+                        with self.assertRaises(ValueError):
+                            setattr(self.driver, name, value)
+                    self.assertEqual(self.resource.commands, before)
+                self.driver.disconnect()
+                with self.assertRaisesRegex(RuntimeError, "not connected"):
+                    setattr(self.driver, name, 1)
+                self.connect()
+
+    def test_common_command_read_only_properties_and_virtual_placeholders(self):
+        virtual = VirtualDP800()
+        for driver in (self.driver, virtual):
+            for name in (
+                "identity",
+                "status_byte_register",
+                "option_installation_status",
+            ):
+                with self.subTest(driver=type(driver), property=name):
+                    with self.assertRaises(AttributeError):
+                        setattr(driver, name, None)
+        self.assertEqual(virtual.identity, "Virtual Rigol DP800")
+        self.assertEqual(virtual.option_installation_status, [""])
+        self.assertEqual(virtual.status_byte_register, 0)
+        for name in (
+            "standard_event_enable_register",
+            "status_byte_enable_register",
+            "power_on_status_clear_bit",
+        ):
+            setattr(virtual, name, 1)
+            self.assertEqual(getattr(virtual, name), 0)
+
+    def test_event_register_and_opc_remain_explicit_methods(self):
+        self.connect()
+        self.resource.responses.update({"*ESR?": "20", "*OPC?": "1"})
+        self.assertEqual(self.driver.get_standard_event_register(), 20)
+        self.driver.set_opc()
+        self.assertEqual(self.driver.get_opc(), 1)
+        self.assertEqual(self.resource.commands[-3:], ["*ESR?", "*OPC", "*OPC?"])
+
     def test_identity_and_connection_logging_are_caller_responsibilities(self):
         with patch("dp800.dp800.logger.info") as log_info:
             self.connect()
         log_info.assert_not_called()
         self.assertEqual(self.resource.commands, [":SYST:REM"])
-        self.assertEqual(self.driver.get_id(), ["RIGOL", "DP832", "serial", "version"])
+        self.assertEqual(self.driver.identity, ["RIGOL", "DP832", "serial", "version"])
         self.assertEqual(self.resource.commands, [":SYST:REM", "*IDN?"])
         with patch("virtual_dp800.virtual_dp800.logger.info") as virtual_log_info:
             VirtualDP800().connect("virtual")

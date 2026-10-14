@@ -76,11 +76,16 @@ manager into connect() or patch `pyvisa.ResourceManager` before connecting.
 The virtual package alone cannot validate SCPI commands or response parsing.
 Report which checks ran and any hardware behavior that remains unverified.
 
+The IEEE488.2 identity, options, enable registers, status byte, and power-on
+clear setting are properties. Hardware property access performs fresh VISA I/O.
+The event-register read and OPC synchronization remain explicit methods. The
+virtual properties preserve their fixed placeholder values and return types.
+
 ## Hardware behavior
 
 `connect()` opens a message-based VISA resource, configures ASCII/LF framing,
 and switches to remote mode before publishing `self._instr`. Identity queries
-and connection logging are caller responsibilities; call get_id() explicitly
+and connection logging are caller responsibilities; read identity explicitly
 when identification is needed.
 Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.

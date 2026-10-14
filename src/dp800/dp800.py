@@ -95,7 +95,7 @@ class dp800:
 
         Notes
         -----
-        Remote mode must succeed before _instr is assigned. Call get_id()
+        Remote mode must succeed before _instr is assigned. Read identity
         explicitly if identification is required; connection logging is left
         to the caller.
         The instance stays disconnected on failure. PyVISA handles cleanup if
@@ -410,7 +410,26 @@ class dp800:
         """Clear all event registers."""
         self._write("*CLS")
 
-    def set_standard_event_enable_register(self, value: int) -> None:
+    @property
+    def standard_event_enable_register(self) -> int:
+        """Get the standard event enable register value.
+
+        Returns
+        -------
+        value : int
+            Register bitmask in the range 0 - 255; assign to enable bits.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        """
+        value = int(self._query("*ESE?"))
+
+        return value
+
+    @standard_event_enable_register.setter
+    def standard_event_enable_register(self, value: int) -> None:
         """Enable bits in the standard event enable register.
 
         Parameters
@@ -425,18 +444,6 @@ class dp800:
         else:
             raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
 
-    def get_standard_event_enable_register(self) -> int:
-        """Get the standard event enable register value.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        value = int(self._query("*ESE?"))
-
-        return value
-
     def get_standard_event_register(self) -> int:
         """Get the standard event register value.
 
@@ -449,7 +456,8 @@ class dp800:
 
         return value
 
-    def get_id(self) -> list[str]:
+    @property
+    def identity(self) -> list[str]:
         """Get instrument identity string.
 
         Returns
@@ -457,6 +465,10 @@ class dp800:
         id : list of str
             List of identification strings consisting of manufacturer, model, serial
             number, and board version number in order.
+
+        Notes
+        -----
+        Each access performs VISA I/O and can raise communication errors.
         """
         idn = self._query("*IDN?").split(",")
 
@@ -485,7 +497,8 @@ class dp800:
 
         return opc
 
-    def get_option_installation_status(self) -> str:
+    @property
+    def option_installation_status(self) -> str:
         """Get the status of installed options.
 
         Returns
@@ -493,12 +506,39 @@ class dp800:
         options : str
             List of options. If an option is installed its name is returned, otherwise
             the query returns a 0.
+
+        Notes
+        -----
+        Each access performs VISA I/O and can raise communication errors.
         """
-        options = self._query("*OPT")
+        options = self._query("*OPT?")
 
         return options
 
-    def set_power_on_status_clear_bit(self, value: int) -> None:
+    @property
+    def power_on_status_clear_bit(self) -> int:
+        """Get the power-on status clear bit.
+
+        Returns
+        -------
+        value : int
+            Value of power-on status clear bit. Values:
+
+                * 0 : Cleared, status enable registers maintain values at power down.
+                * 1 : Set, all status and enable registers are cleared on power up.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        """
+        cmd = f"*PSC?"
+        value = int(self._query(cmd))
+
+        return value
+
+    @power_on_status_clear_bit.setter
+    def power_on_status_clear_bit(self, value: int) -> None:
         """Set the power-on status clear bit.
 
         Parameters
@@ -511,22 +551,6 @@ class dp800:
         """
         cmd = f"*PSC {value}"
         self._write(cmd)
-
-    def get_power_on_status_clear_bit(self) -> int:
-        """Get the power-on status clear bit.
-
-        Returns
-        -------
-        value : int
-            Value of power-on status clear bit. Values:
-
-                * 0 : Cleared, status enable registers maintain values at power down.
-                * 1 : Set, all status and enable registers are cleared on power up.
-        """
-        cmd = f"*PSC?"
-        value = int(self._query(cmd))
-
-        return value
 
     def recall_setup(self, number: int) -> None:
         """Recall instrument setup from setting buffer.
@@ -555,7 +579,26 @@ class dp800:
         cmd = f"*SAV {number}"
         self._write(cmd)
 
-    def set_status_byte_enable_register(self, value: int) -> None:
+    @property
+    def status_byte_enable_register(self) -> int:
+        """Get the status byte enable register value.
+
+        Returns
+        -------
+        value : int
+            Register bitmask in the range 0 - 255; assign to enable bits.
+
+        Notes
+        -----
+        Each read or assignment performs VISA I/O and can raise communication
+        errors.
+        """
+        value = int(self._query("*SRE?"))
+
+        return value
+
+    @status_byte_enable_register.setter
+    def status_byte_enable_register(self, value: int) -> None:
         """Enable bits in the status byte enable register.
 
         Parameters
@@ -570,19 +613,8 @@ class dp800:
         else:
             raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
 
-    def get_status_byte_enable_register(self) -> int:
-        """Get the status byte enable register value.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        value = int(self._query("*SRE?"))
-
-        return value
-
-    def get_status_byte_register(self) -> int:
+    @property
+    def status_byte_register(self) -> int:
         """Get the status byte register value.
 
         Querying this register does not clear it.
@@ -591,6 +623,10 @@ class dp800:
         -------
         value : int
             Register value.
+
+        Notes
+        -----
+        Each access performs VISA I/O and can raise communication errors.
         """
         value = int(self._query("*STB?"))
 
