@@ -210,6 +210,140 @@ class ChannelTests(unittest.TestCase):
         virtual.connect("virtual")
         self.assertIs(virtual.channels[2], channel)
 
+    def test_output_and_protection_properties_query_the_fixed_channel(self):
+        channel = self.supply.channels[2]
+        for name, command, responses in (
+            (
+                "output_mode",
+                ":OUTP:MODE? CH2",
+                (("CV", "CV"), ("CC", "CC"), ("UR", "UR")),
+            ),
+            ("sense_enabled", ":OUTP:SENS? CH2", (("ON", True), ("OFF", False))),
+            ("ocp_enabled", ":OUTP:OCP? CH2", (("ON", True), ("OFF", False))),
+            ("ocp_value", ":OUTP:OCP:VAL? CH2", (("0.75", 0.75),)),
+            ("ocp_tripped", ":OUTP:OCP:ALAR? CH2", (("YES", True), ("NO", False))),
+            ("ovp_enabled", ":OUTP:OVP? CH2", (("ON", True), ("OFF", False))),
+            ("ovp_value", ":OUTP:OVP:VAL? CH2", (("5.5", 5.5),)),
+            ("ovp_tripped", ":OUTP:OVP:ALAR? CH2", (("YES", True), ("NO", False))),
+        ):
+            for response, expected in responses:
+                with self.subTest(property=name, response=response):
+                    self.resource.responses[command] = response
+                    self.assertEqual(getattr(channel, name), expected)
+                    self.assertEqual(getattr(channel, name), expected)
+                    self.assertEqual(self.resource.commands[-2:], [command, command])
+                    error = OSError("Query failed")
+                    self.resource.query_error = error
+                    with self.assertRaises(OSError) as raised:
+                        getattr(channel, name)
+                    self.assertIs(raised.exception, error)
+                    self.resource.query_error = None
+        for name in ("output_mode", "ocp_tripped", "ovp_tripped"):
+            with self.assertRaises(AttributeError):
+                setattr(channel, name, None)
+        self.assertFalse(
+            any(command.startswith(":INST") for command in self.resource.commands)
+        )
+
+    def test_protection_and_sensing_assignments_and_alarm_clearing(self):
+        channel = self.supply.channels[2]
+        for name, prefix, values in (
+            ("sense_enabled", ":OUTP:SENS CH2,", ((True, "ON"), (False, "OFF"))),
+            ("ocp_enabled", ":OUTP:OCP CH2,", ((True, "ON"), (False, "OFF"))),
+            (
+                "ocp_value",
+                ":OUTP:OCP:VAL CH2,",
+                ((0.75, "0.75"), ("MIN", "MIN"), ("MAX", "MAX")),
+            ),
+            ("ovp_enabled", ":OUTP:OVP CH2,", ((True, "ON"), (False, "OFF"))),
+            (
+                "ovp_value",
+                ":OUTP:OVP:VAL CH2,",
+                ((5.5, "5.5"), ("MIN", "MIN"), ("MAX", "MAX")),
+            ),
+        ):
+            for value, suffix in values:
+                with self.subTest(property=name, value=value):
+                    command = prefix + suffix
+                    setattr(channel, name, value)
+                    self.assertEqual(self.resource.commands[-1], command)
+                    error = OSError("Write failed")
+                    self.resource.write_errors[command] = error
+                    with self.assertRaises(OSError) as raised:
+                        setattr(channel, name, value)
+                    self.assertIs(raised.exception, error)
+                    self.resource.write_errors.clear()
+        for name, command in (
+            ("clear_ocp_label", ":OUTP:OCP:CLEAR CH2"),
+            ("clear_ovp_label", ":OUTP:OVP:CLEAR CH2"),
+        ):
+            with self.subTest(method=name):
+                getattr(channel, name)()
+                self.assertEqual(self.resource.commands[-1], command)
+                error = OSError("Clear failed")
+                self.resource.write_errors[command] = error
+                with self.assertRaises(OSError) as raised:
+                    getattr(channel, name)()
+                self.assertIs(raised.exception, error)
+                self.resource.write_errors.clear()
+        self.assertEqual(self.resource.commands.count("*IDN?"), 1)
+        self.assertFalse(
+            any(command.startswith(":INST") for command in self.resource.commands)
+        )
+
+    def test_all_new_operations_recheck_availability_after_reconnection(self):
+        channel = self.supply.channels[3]
+        getters = (
+            "output_mode",
+            "sense_enabled",
+            "ocp_enabled",
+            "ocp_value",
+            "ocp_tripped",
+            "ovp_enabled",
+            "ovp_value",
+            "ovp_tripped",
+        )
+        setters = (
+            ("sense_enabled", True),
+            ("ocp_enabled", True),
+            ("ocp_value", 0.75),
+            ("ovp_enabled", True),
+            ("ovp_value", 5.5),
+        )
+        actions = ("clear_ocp_label", "clear_ovp_label")
+        self.supply.disconnect()
+        for connected, error_type in ((False, RuntimeError), (True, ValueError)):
+            with self.subTest(connected=connected):
+                if connected:
+                    self.resource.responses["*IDN?"] = "RIGOL,DP811,serial,version"
+                    self.connect()
+                self.resource.commands.clear()
+                for name in getters:
+                    with self.assertRaises(error_type):
+                        getattr(channel, name)
+                for name, value in setters:
+                    with self.assertRaises(error_type):
+                        setattr(channel, name, value)
+                for name in actions:
+                    with self.assertRaises(error_type):
+                        getattr(channel, name)()
+                self.assertEqual(self.resource.commands, ["*IDN?"] if connected else [])
+
+    def test_virtual_output_and_protection_properties_preserve_placeholders(self):
+        channel = VirtualDP800().channels[2]
+        self.assertEqual(channel.output_mode, "")
+        for name in ("sense_enabled", "ocp_enabled", "ovp_enabled"):
+            setattr(channel, name, True)
+            self.assertFalse(getattr(channel, name))
+        for name in ("ocp_value", "ovp_value"):
+            for value in (1.0, "MIN", "MAX"):
+                setattr(channel, name, value)
+                self.assertEqual(getattr(channel, name), 0.0)
+        self.assertFalse(channel.ocp_tripped)
+        self.assertFalse(channel.ovp_tripped)
+        channel.clear_ocp_label()
+        channel.clear_ovp_label()
+
 
 if __name__ == "__main__":
     unittest.main()

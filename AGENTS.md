@@ -99,6 +99,11 @@ channels check availability before I/O after reconnect. This is the exception to
 fresh-I/O properties: channel_count caches metadata, and channel performs no I/O.
 Channel measured_* properties return floats; measure() preserves parent response
 types, including the virtual driver's 0.0 placeholder for ALL.
+Channel views also delegate output mode, remote sensing, OCP/OVP enable states,
+thresholds, alarms, and alarm-label clearing. Preserve model/channel restrictions
+documented by the parent driver. Validate channel availability before operations:
+the parent can reconnect to a model with fewer channels while channel objects
+remain alive. These checks use cached channel_count within a connection.
 
 ## Hardware behavior
 

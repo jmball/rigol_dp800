@@ -39,6 +39,13 @@ are configured setpoints; `measured_voltage`, `measured_current`, and
 `measured_power` return measured values as floats. `measure()` preserves the
 parent driver's response types and accepts `"ALL"`.
 
+Channels also expose read-only `output_mode`, `ocp_tripped`, and `ovp_tripped`,
+plus read/write `ocp_enabled`, `ocp_value`, `ovp_enabled`, `ovp_value`, and
+`sense_enabled`. Protection values use amps for OCP and volts for OVP; assignments
+also accept `"MIN"` or `"MAX"`. Call `clear_ocp_label()` or `clear_ovp_label()` to
+clear the corresponding alarm label. Sensing support depends on the model and
+channel.
+
 `channel_count` identifies the model on first access and caches the number of
 physical outputs until disconnect. Accessing `channels` also triggers this
 discovery; `connect()` does not query identity. Channels use one-based indexing,

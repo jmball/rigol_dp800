@@ -137,6 +137,173 @@ class DP800Channel:
         self._supply.set_output_enable(enabled, channel=self._channel)
 
     @property
+    def output_mode(self) -> str:
+        """Query the channel's voltage/current regulation mode.
+
+        Returns
+        -------
+        mode : str
+            'CV' for constant voltage, 'CC' for constant current, or 'UR' for
+            unregulated output. The virtual driver returns an empty string.
+        """
+        self._validate_channel()
+        return self._supply.get_output_mode(channel=self._channel)
+
+    @property
+    def sense_enabled(self) -> bool:
+        """Query remote sensing, where supported by the model and channel.
+
+        Returns
+        -------
+        enabled : bool
+            Whether remote sensing is enabled.
+        """
+        self._validate_channel()
+        return self._supply.get_output_sense_enable(channel=self._channel)
+
+    @sense_enabled.setter
+    def sense_enabled(self, enabled: bool) -> None:
+        """Set remote sensing, where supported by the model and channel.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether remote sensing should be enabled.
+        """
+        self._validate_channel()
+        self._supply.set_output_sense_enable(enabled, channel=self._channel)
+
+    @property
+    def ocp_enabled(self) -> bool:
+        """Query the overcurrent protection enable state.
+
+        Returns
+        -------
+        enabled : bool
+            Whether overcurrent protection is enabled.
+        """
+        self._validate_channel()
+        return self._supply.get_ocp_enable(channel=self._channel)
+
+    @ocp_enabled.setter
+    def ocp_enabled(self, enabled: bool) -> None:
+        """Enable or disable overcurrent protection.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether overcurrent protection should be enabled.
+        """
+        self._validate_channel()
+        self._supply.set_ocp_enable(enabled, channel=self._channel)
+
+    @property
+    def ocp_value(self) -> float:
+        """Query the overcurrent protection threshold in amps.
+
+        Returns
+        -------
+        value : float
+            Configured overcurrent protection threshold in amps.
+        """
+        self._validate_channel()
+        return self._supply.get_ocp_value(channel=self._channel)
+
+    @ocp_value.setter
+    def ocp_value(self, value: float | Literal["MIN", "MAX"]) -> None:
+        """Set the overcurrent protection threshold.
+
+        Parameters
+        ----------
+        value : float or {'MIN', 'MAX'}
+            Threshold in amps, or the instrument's minimum or maximum value.
+        """
+        self._validate_channel()
+        self._supply.set_ocp_value(value, channel=self._channel)
+
+    @property
+    def ocp_tripped(self) -> bool:
+        """Query whether overcurrent protection has tripped.
+
+        Returns
+        -------
+        tripped : bool
+            Whether the overcurrent protection alarm is active.
+        """
+        self._validate_channel()
+        return self._supply.get_ocp(channel=self._channel)
+
+    def clear_ocp_label(self) -> None:
+        """Clear this channel's overcurrent protection alarm label."""
+        self._validate_channel()
+        self._supply.clear_ocp_label(channel=self._channel)
+
+    @property
+    def ovp_enabled(self) -> bool:
+        """Query the overvoltage protection enable state.
+
+        Returns
+        -------
+        enabled : bool
+            Whether overvoltage protection is enabled.
+        """
+        self._validate_channel()
+        return self._supply.get_ovp_enable(channel=self._channel)
+
+    @ovp_enabled.setter
+    def ovp_enabled(self, enabled: bool) -> None:
+        """Enable or disable overvoltage protection.
+
+        Parameters
+        ----------
+        enabled : bool
+            Whether overvoltage protection should be enabled.
+        """
+        self._validate_channel()
+        self._supply.set_ovp_enable(enabled, channel=self._channel)
+
+    @property
+    def ovp_value(self) -> float:
+        """Query the overvoltage protection threshold in volts.
+
+        Returns
+        -------
+        value : float
+            Configured overvoltage protection threshold in volts.
+        """
+        self._validate_channel()
+        return self._supply.get_ovp_value(channel=self._channel)
+
+    @ovp_value.setter
+    def ovp_value(self, value: float | Literal["MIN", "MAX"]) -> None:
+        """Set the overvoltage protection threshold.
+
+        Parameters
+        ----------
+        value : float or {'MIN', 'MAX'}
+            Threshold in volts, or the instrument's minimum or maximum value.
+        """
+        self._validate_channel()
+        self._supply.set_ovp_value(value, channel=self._channel)
+
+    @property
+    def ovp_tripped(self) -> bool:
+        """Query whether overvoltage protection has tripped.
+
+        Returns
+        -------
+        tripped : bool
+            Whether the overvoltage protection alarm is active.
+        """
+        self._validate_channel()
+        return self._supply.get_ovp(channel=self._channel)
+
+    def clear_ovp_label(self) -> None:
+        """Clear this channel's overvoltage protection alarm label."""
+        self._validate_channel()
+        self._supply.clear_ovp_label(channel=self._channel)
+
+    @property
     def measured_voltage(self) -> float:
         """Actual voltage in volts; each access performs VISA I/O.
 
@@ -190,7 +357,11 @@ class DP800Channel:
         return self._supply.measure(func, channel=self._channel)
 
     def _validate_channel(self) -> None:
-        """Check that this physical channel is available on the current supply."""
+        """Check that this physical channel is available on the current supply.
+
+        Reconnecting the parent can change its model while this object remains
+        alive. Within a connection, the parent's channel count is cached.
+        """
         if not 1 <= self._channel <= self._supply.channel_count:
             raise ValueError(
                 f"Channel {self._channel} is not available on this supply."
