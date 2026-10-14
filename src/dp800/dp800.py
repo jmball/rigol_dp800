@@ -8,11 +8,30 @@ https://www.rigolna.com/products/dc-power-loads/dp800/.
 
 import logging
 import warnings
+from collections.abc import Mapping
 from types import MappingProxyType, TracebackType
 from typing import Any, Final, Literal
 
 import pyvisa
 from pyvisa.resources import MessageBasedResource, Resource
+
+from .channel import DP800Channel
+
+# Physical outputs (not output ranges), from the Rigol DP800 data sheet.
+_MODEL_CHANNEL_COUNTS: Final = MappingProxyType(
+    {
+        model + suffix: count
+        for model, count in (
+            ("DP831", 3),
+            ("DP832", 3),
+            ("DP821", 2),
+            ("DP822", 2),
+            ("DP811", 1),
+            ("DP813", 1),
+        )
+        for suffix in ("", "A")
+    }
+)
 
 # Fixed SCPI framing used by the driver, shared by all connections.
 ENCODING: Final = "ascii"
@@ -43,6 +62,55 @@ class dp800:
 
     def __init__(self) -> None:
         self._instr: MessageBasedResource | None = None
+        self._channel_count: int | None = None
+        self._channels: dict[int, DP800Channel] = {}
+
+    @property
+    def channel_count(self) -> int:
+        """Number of physical outputs, discovered on demand from identity.
+
+        Returns
+        -------
+        count : int
+            One, two, or three outputs for a supported DP800 model. Dual-range
+            single-output models have one channel.
+
+        Notes
+        -----
+        The first access per connection queries identity. The result is cached
+        until disconnect; connect() does not query identity. Unknown models
+        or malformed identity responses raise ValueError.
+        """
+        if self._instr is None:
+            raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        if self._channel_count is None:
+            identity = self.identity
+            if len(identity) < 2:
+                raise ValueError(f"Invalid instrument identity: {identity!r}.")
+            model = identity[1].strip().upper()
+            try:
+                self._channel_count = _MODEL_CHANNEL_COUNTS[model]
+            except KeyError:
+                raise ValueError(f"Unsupported DP800 model: {model!r}.") from None
+        return self._channel_count
+
+    @property
+    def channels(self) -> Mapping[int, DP800Channel]:
+        """Read-only channel mapping keyed by one-based physical numbers.
+
+        Notes
+        -----
+        Access discovers channel_count if needed. Channel objects are reused
+        across accesses and reconnects. Retained objects validate availability
+        against the current connection before performing I/O.
+        """
+        count = self.channel_count
+        for channel in range(1, count + 1):
+            if channel not in self._channels:
+                self._channels[channel] = DP800Channel(self, channel)
+        return MappingProxyType(
+            {channel: self._channels[channel] for channel in range(1, count + 1)}
+        )
 
     def __enter__(self) -> "dp800":
         """Return this instance without opening a connection."""
@@ -161,6 +229,7 @@ class dp800:
         does not explicitly close the manager. The first error is
         re-raised after cleanup; subsequent errors are logged.
         """
+        self._channel_count = None
         resource = self._instr
         if resource is None:
             return

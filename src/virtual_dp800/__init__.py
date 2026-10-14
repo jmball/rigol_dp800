@@ -9,3 +9,4 @@ except PackageNotFoundError:
     __version__ = "0.0.0"
 
 from .virtual_dp800 import *
+from dp800.channel import DP800Channel as DP800Channel

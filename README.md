@@ -16,6 +16,40 @@ On Windows, use `.venv\Scripts\python.exe` for the environment's interpreter.
 PyVISA and the pure Python `pyvisa-py` backend are installed as dependencies;
 hardware access may require additional drivers or backend configuration.
 
+## Channels
+
+```python
+from dp800 import dp800
+
+with dp800() as supply:
+    supply.connect("TCPIP0::192.0.2.1::INSTR")  # Use your instrument's VISA name.
+    ch1 = supply.channels[1]
+    ch1.voltage = 5.0
+    ch1.current = 0.5
+    ch1.output_enabled = True
+
+    print(ch1.channel, ch1.measured_voltage, ch1.measured_current)
+    print(ch1.measured_power)
+    print(ch1.measure("ALL"))  # Voltage, current, power as response strings.
+```
+
+`DP800Channel` objects share the supply's connection and address their physical
+channel explicitly, without changing `selected_channel`. `voltage` and `current`
+are configured setpoints; `measured_voltage`, `measured_current`, and
+`measured_power` return measured values as floats. `measure()` preserves the
+parent driver's response types and accepts `"ALL"`.
+
+`channel_count` identifies the model on first access and caches the number of
+physical outputs until disconnect. Accessing `channels` also triggers this
+discovery; `connect()` does not query identity. Channels use one-based indexing,
+and the mapping is read-only. Unknown models raise `ValueError`. Channel objects
+remain stable across reconnects, but reject operations if their channel is no
+longer available. Exiting the context manager disconnects and disables outputs.
+
+The virtual driver exposes three channels using the same class, with its
+existing fixed placeholder values and no-op setters. Its `measure()` continues
+to return `0.0`, including for `"ALL"`.
+
 ## Building distributions
 
 ```sh

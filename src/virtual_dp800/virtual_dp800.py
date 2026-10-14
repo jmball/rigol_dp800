@@ -4,12 +4,14 @@
 
 import logging
 import warnings
-from types import TracebackType
+from collections.abc import Mapping
+from types import MappingProxyType, TracebackType
 from typing import Any, Literal
 
 import pyvisa
 
 from dp800.dp800 import PROTOCOL_RESOURCE_SETTINGS
+from dp800.channel import DP800Channel
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
@@ -27,6 +29,17 @@ class dp800:
             Check instrument error status after every command.
         """
         self._connected = False
+        self._channels = {channel: DP800Channel(self, channel) for channel in (1, 2, 3)}
+
+    @property
+    def channel_count(self) -> int:
+        """Return three placeholder channels without hardware I/O."""
+        return 3
+
+    @property
+    def channels(self) -> Mapping[int, DP800Channel]:
+        """Read-only, one-based channel mapping with stable placeholder objects."""
+        return MappingProxyType(self._channels)
 
     def __enter__(self) -> "dp800":
         """Return this instance without opening a connection."""

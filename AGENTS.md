@@ -11,6 +11,9 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   and resource closing use the local resource directly.
 - `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. Most setters
   are no-ops and getters return fixed placeholders; it is not a stateful simulator.
+- `src/dp800/channel.py`: DP800Channel views shared by both drivers. Channel
+  objects delegate setpoint/output commands and measurements with an explicit
+  channel number. They share the parent connection and expose no lifecycle API.
 - Both packages export a lowercase `dp800` class through their `__init__.py` and
   obtain `__version__` through `importlib.metadata` for the `rigol_dp800`
   distribution, with a `0.0.0` fallback.
@@ -85,6 +88,14 @@ panel keylock are also read/write properties. Self-test results and temperature
 test results are read-only properties. Assigning selected_channel changes the
 channel used by subsequent commands that omit a channel argument. Delay cycles,
 channel-specific settings, and unfinished placeholders remain methods.
+The read-only channels mapping uses one-based physical channel numbers and stable
+DP800Channel instances. Hardware channel_count discovers the model through
+identity on first access per connection, using the Rigol data sheet's counts.
+Unknown models raise ValueError. Disconnect clears the cached count; retained
+channels check availability before I/O after reconnect. This is the exception to
+fresh-I/O properties: channel_count caches metadata, and channel performs no I/O.
+Channel measured_* properties return floats; measure() preserves parent response
+types, including the virtual driver's 0.0 placeholder for ALL.
 
 ## Hardware behavior
 
