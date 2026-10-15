@@ -29,8 +29,11 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   Keep metadata and source SPDX identifiers consistent. Leave license details and
   Python compatibility requirements out of the README.
 
-`tests/` contains hardware-free unittest regression tests for driver behavior,
-channel views, and error-queue diagnostics. There is
+`tests/unit/` contains pytest regressions for driver behavior, channel views,
+error-queue diagnostics, virtual placeholders, and the hardware test harness.
+`tests/fakes.py` provides shared VISA doubles; `tests/api.py` lists public API
+contracts. `tests/hardware/` contains opt-in real instrument tests, configured
+through pytest CLI options in `tests/conftest.py`. There is
 no CI configuration or configured formatter, linter, or type checker.
 
 ## Making changes
@@ -66,7 +69,7 @@ Use an isolated environment when installation is needed:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e '.[test]'
 ```
 
 For a syntax check that does not import the driver or connect to hardware:
@@ -79,13 +82,21 @@ Run `git diff --check` for whitespace errors. For documentation-only changes,
 review the text and diff; dependency installation and hardware checks are not
 needed. Keep environments, bytecode, build outputs, and egg metadata untracked.
 
-Run regression tests with `.venv/bin/python -m unittest discover -s tests -v`
+Run regression tests with `.venv/bin/python -m pytest`
 after installing the checkout. For driver behavior changes, use focused tests
 with a fake VISA resource that records writes and supplies query responses.
 Importing the hardware package does not create a resource manager. Inject a fake
 manager into connect() or patch `pyvisa.ResourceManager` before connecting.
 The virtual package alone cannot validate SCPI commands or response parsing.
 Report which checks ran and any hardware behavior that remains unverified.
+Hardware tests skip by default; see README for the required --visa-resource and
+--hardware-model arguments and additional operation flags. Never assume a bench
+is available or enable outputs without the explicit hardware CLI option. Tests
+must run serially against each instrument. The fixture shuts down physical
+channels even when only a subset is selected; persistent changes require flags.
+Keep unfinished methods covered as unit placeholders rather than claiming they
+have hardware functionality. Preserve the public API coverage inventory when
+adding methods/properties.
 
 The IEEE488.2 identity, options, enable registers, status byte, and power-on
 clear setting are properties. Hardware property access performs fresh VISA I/O.

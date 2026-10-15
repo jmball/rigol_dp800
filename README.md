@@ -93,6 +93,79 @@ pass `check_errors=False` to prevent recursive checks and timeout diagnostics.
 Successful normal queries still check the queue: receiving a valid response
 does not establish that no device or previously queued errors exist.
 
+## Tests
+
+Install the test dependencies and run pytest:
+
+```sh
+.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python -m pytest
+.venv/bin/python -m pytest tests/unit --cov --cov-report=term-missing
+```
+
+`tests/unit/` covers connection ownership and cleanup, framing, command strings,
+response parsing, properties, channels, error handling and the virtual driver.
+Shared fake VISA resources live in `tests/fakes.py`. Parameterized interface
+cases replace duplicate command tests; an explicit API inventory detects public
+members without test cases. Unfinished methods are checked for their existing
+warning/no-op behavior.
+
+`tests/hardware/` exercises the implemented interface through real SCPI round
+trips. Hardware tests are skipped unless a resource and expected model are
+provided through CLI arguments:
+
+```sh
+.venv/bin/python -m pytest tests/hardware -rs \
+  --visa-resource 'TCPIP0::192.0.2.1::INSTR' \
+  --hardware-model DP832A --visa-backend @py --visa-timeout 5000
+```
+
+Replace the address and model with your instrument. Configuration is validated
+before opening a device, and its identity must match before settings change.
+Tests run serially with a fresh connection per test; do not run them concurrently
+against the same instrument. Even the default hardware suite disables all
+physical outputs, changes settings, consumes error/event registers, clears alarm
+labels and returns the front panel to local/unlocked mode. Use an isolated bench.
+Tests restore the settings they change where practical, but leave outputs off.
+They check communication and response types, not calibrated electrical accuracy.
+
+| CLI option | Purpose |
+| --- | --- |
+| `--visa-resource` | VISA name; enables hardware tests. |
+| `--hardware-model` | Expected DP811, DP813, DP821, DP822, DP831 or DP832, optionally with an A suffix. |
+| `--visa-backend` | Backend selection; omitted uses PyVISA's default. |
+| `--visa-timeout` | Positive I/O timeout in milliseconds, default 5000. |
+| `--visa-options` | Additional PyVISA options/attributes as JSON, e.g. `'{"baud_rate": 19200}'` for serial devices. Use dedicated arguments for the resource and timeout. |
+| `--hardware-channels` | Channels to exercise, e.g. `1,2`; defaults to all physical channels. Cleanup still disables all physical outputs. |
+| `--hardware-voltage` | Test voltage magnitude in `(0, 5]` V, default 1.0; negated for DP831 CH3. |
+| `--hardware-current` | Test current limit in `(0, 0.1]` A, default 0.01. |
+| `--hardware-allow-output` | Permit brief output activation at the configured voltage/current. |
+| `--hardware-trigger` | Exercise bus triggering; requires the trigger option and `--hardware-allow-output`. |
+| `--hardware-reset` | Exercise reset; discards the previous instrument configuration. |
+| `--hardware-save-slot` | Overwrite and recall a setup slot in 1–9; its previous contents are lost. |
+| `--hardware-license` | Install a valid instrument-specific 28-character option license, a persistent change. |
+
+Model/channel restrictions follow the [Rigol programming guide](https://www.batronix.com/pdf/Rigol/ProgrammingGuide/DP800_ProgrammingGuide_EN.pdf).
+Multi-channel selection/coupling and remote sensing tests skip unsupported models
+or channels. Operations needing additional flags also report explicit skips.
+Methods that currently only warn `Not implemented.` have unit coverage rather
+than hardware cases.
+
+The hardware suite includes invalid-channel write and query checks. The query
+case verifies that firmware times out and the error-queue fallback raises
+`InstrumentError`; hardware is required to establish that behavior. Each such
+test gets its own connection to isolate potential response synchronization issues.
+
+Dedicated lifecycle tests exercise `disconnect()` and context-manager exits.
+The driver currently attempts CH1–CH3 shutdown on every model, so these tests may
+fail on one- or two-channel supplies if absent channels report errors. General
+fixture cleanup addresses only actual physical channels, closes the resource,
+and closes its caller-owned manager, keeping this issue separate from other
+interface checks. Cleanup failures are reported as test errors.
+
+In the development VM, networked hardware may need a host-side exception. From
+the host's `dev-vm` repository, run `./manage-network-access.sh add <IPv4-address>`.
+
 ## Building distributions
 
 ```sh

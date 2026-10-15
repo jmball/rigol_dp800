@@ -17,6 +17,20 @@ classifiers = [
 ]
 dependencies = ["pyvisa", "pyvisa-py"]
 
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+  "hardware: opt-in tests requiring a real instrument and explicit configuration",
+]
+
+[tool.coverage.run]
+source = ["dp800", "virtual_dp800"]
+branch = true
+
 [project.urls]
 Homepage = "https://github.com/jmball/rigol_dp800"
 
