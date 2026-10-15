@@ -118,8 +118,8 @@ class HardwareConfig:
             )
         if timeout <= 0:
             raise pytest.UsageError("--visa-timeout must be positive")
-        if slot is not None and not 1 <= slot <= 9:
-            raise pytest.UsageError("--hardware-save-slot must be in 1-9")
+        if slot is not None and not 1 <= slot <= 10:
+            raise pytest.UsageError("--hardware-save-slot must be in 1-10")
         license = config.getoption("--hardware-license")
         if license is not None and (
             len(license) != 28 or not license.isascii() or not license.isalnum()

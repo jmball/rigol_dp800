@@ -5,16 +5,15 @@
 import pytest
 
 from dp800 import DP800, DP800Channel
+from tests.extended_api import METHODS, PROPERTIES
 from tests.api import (
     ACTIONS,
     CHANNEL_MEMBERS,
     CHANNEL_READS,
     CHANNEL_WRITES,
-    PLACEHOLDERS,
     READ_PROPERTIES,
     SPECIAL_API,
     WRITE_PROPERTIES,
-    placeholder_kwargs,
 )
 
 
@@ -210,23 +209,13 @@ def test_apply_function_response(connected, func):
     resource.responses[f":APPL? CH2,{func}"] = "1.2"
     assert driver.get_apply(2, func) == 1.2
     resource.responses[f":APPL?,{func}"] = "1.2"
-    with pytest.warns(UserWarning, match="cannot only omit"):
-        assert driver.get_apply(function=func) == "1.2"
-
-
-@pytest.mark.parametrize("name", PLACEHOLDERS)
-def test_hardware_driver_placeholders_warn_without_io(fake_visa, name):
-    driver, resource, _ = fake_visa
-    method = getattr(driver, name)
-    with pytest.warns(UserWarning, match="Not implemented"):
-        assert method(**placeholder_kwargs(method)) is None
-    assert resource.io_events == []
+    with pytest.raises(ValueError, match="Specify a channel"):
+        driver.get_apply(function=func)
 
 
 def test_public_interface_has_explicit_test_cases():
     covered = (
-        set(PLACEHOLDERS)
-        | set(READ_PROPERTIES)
+        set(READ_PROPERTIES)
         | set(WRITE_PROPERTIES)
         | set(CHANNEL_READS)
         | set(CHANNEL_WRITES)
@@ -240,6 +229,7 @@ def test_public_interface_has_explicit_test_cases():
         if not name.startswith("_")
         and (callable(member) or isinstance(member, property))
     }
+    covered |= set(PROPERTIES) | {case[0] for case in METHODS}
     assert members == covered
     channel_members = {
         name

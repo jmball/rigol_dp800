@@ -1,67 +1,170 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Virtual Rigol DP800 series power supply control library."""
+"""Stateful, deterministic DP800 interface without VISA backends or physical I/O.
 
+The hardware API is inherited so command construction and response parsing stay
+identical. The small in-memory transport below supports the commands emitted by
+that API; it is not a general-purpose SCPI server or a real-time circuit model.
+"""
+
+from __future__ import annotations
+
+import copy
 import logging
+import math
+import ntpath
+import statistics
 import warnings
-from collections.abc import Mapping
-from types import MappingProxyType, TracebackType
-from typing import Any, Literal
+from typing import Any, NoReturn
 
 import pyvisa
+from pyvisa.resources import MessageBasedResource
 
-from dp800.dp800 import PROTOCOL_RESOURCE_SETTINGS
-from dp800.channel import DP800Channel
+from dp800.dp800 import (
+    DP800 as HardwareDP800,
+    InstrumentError,
+    _protocol_settings,
+    _fields,
+)
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
+# Values are response strings so the public hardware response parsers are reused.
+_DEFAULTS: dict[str, str] = {
+    ":ANAL:CURRT": "1",
+    ":ANAL:STARTT": "1",
+    ":ANAL:ENDT": "1",
+    ":ANAL:OBJ": "V",
+    ":ANAL:FILE": "NONE",
+    ":DELAY": "OFF",
+    ":DELAY:STAT:GEN": "01P",
+    ":DELAY:STOP": "NONE",
+    ":DELAY:TIME:GEN": "FIX,1,1",
+    ":DISP:MODE": "NORMAL",
+    ":DISP": "ON",
+    ":DISP:TEXT": '""',
+    ":MMEM:CDIR": "D:\\",
+    ":MMEM:CAT": "",
+    ":MMEM:DISK": "D:\\",
+    ":MONI:VOLT": "0",
+    ":MONI:VOLT:COND": "NONE,NONE",
+    ":MONI:CURR": "0",
+    ":MONI:CURR:COND": "NONE,NONE",
+    ":MONI:POWER": "0",
+    ":MONI:POWER:COND": "NONE",
+    ":MONI": "OFF",
+    ":MONI:STOP": "OFF,OFF,OFF",
+    ":OUTP:RANG": "20V/10A",
+    ":PRES:KEY": "DEFAULT",
+    ":REC": "OFF",
+    ":REC:PERI": "1",
+    ":REC:DEST": "NONE",
+    ":STAT:QUES:COND": "0",
+    ":STAT:QUES:ENAB": "0",
+    ":STAT:QUES:INST:ENAB": "0",
+    ":SYST:BEEP": "ON",
+    ":SYST:BRIG": "50",
+    ":SYST:CONT": "50",
+    ":SYST:COMM:GPIB:ADDR": "1",
+    ":SYST:COMM:LAN:AUTO": "ON",
+    ":SYST:COMM:LAN:DHCP": "ON",
+    ":SYST:COMM:LAN:DNS": "0.0.0.0",
+    ":SYST:COMM:LAN:GATE": "0.0.0.0",
+    ":SYST:COMM:LAN:IPAD": "192.0.2.1",
+    ":SYST:COMM:LAN:MAC": "00-00-00-00-00-01",
+    ":SYST:COMM:LAN:MAN": "OFF",
+    ":SYST:COMM:LAN:SMASK": "255.255.255.0",
+    ":SYST:COMM:RS232:BAUD": "9600",
+    ":SYST:COMM:RS232:DATAB": "8",
+    ":SYST:COMM:RS232:FLOWC": "OFF",
+    ":SYST:COMM:RS232:PARI": "NONE",
+    ":SYST:COMM:RS232:STOPB": "1",
+    ":SYST:LANG:TYPE": "English",
+    ":SYST:LOCK": "OFF",
+    ":SYST:ONOFFS": "OFF",
+    ":SYST:OTP": "OFF",
+    ":SYST:POWE": "DEFAULT",
+    ":SYST:SAV": "OFF",
+    ":SYST:TRACKM": "SYNC",
+    ":SYST:VERS": "1999.0",
+    ":SYST:SELF:TEST:FAN": "PASS",
+    ":TIME:CYCLE": "N,1",
+    ":TIME:ENDS": "OFF",
+    ":TIME:GROUP": "1",
+    ":TIME": "OFF",
+    ":TIME:TEMP:SEL": "SINE",
+    ":TIME:TEMP:OBJ": "V,0.1",
+    ":TIME:TEMP:MAXV": "1",
+    ":TIME:TEMP:MINV": "0",
+    ":TIME:TEMP:INVE": "OFF",
+    ":TIME:TEMP:FALLR": "0",
+    ":TIME:TEMP:RISER": "0",
+    ":TIME:TEMP:INTE": "1",
+    ":TIME:TEMP:PERI": "10",
+    ":TIME:TEMP:POINT": "10",
+    ":TIME:TEMP:SYMM": "50",
+    ":TIME:TEMP:WIDT": "1",
+    ":TRIG:SOUR": "BUS",
+    ":TRIG:DEL": "0",
+}
+_RANGES = {
+    "DP811": [(20.0, 10.0)],
+    "DP813": [(8.0, 20.0)],
+    "DP821": [(60.0, 1.0), (8.0, 10.0)],
+    "DP822": [(20.0, 5.0), (5.0, 16.0)],
+    "DP831": [(8.0, 5.0), (30.0, 2.0), (-30.0, 2.0)],
+    "DP832": [(30.0, 3.0), (30.0, 3.0), (5.0, 3.0)],
+}
 
-class DP800:
-    """Virtual Rigol DP800 series power supply instrument."""
 
-    def __init__(self, check_errors: bool = True) -> None:
-        """Initialize a virtual driver with fixed placeholder channels.
+class DP800(HardwareDP800):
+    """An in-memory supply using the same public API as the hardware driver.
 
-        Parameters
-        ----------
-        check_errors : bool, optional
-            Accepted for compatibility with the existing constructor; ignored
-            by this placeholder implementation.
-        """
-        self._connected = False
-        self._channels = {channel: DP800Channel(self, channel) for channel in (1, 2, 3)}
+    Measurements use ideal DC behavior: an open circuit draws zero current; an
+    optional resistive load produces CV/CC operation. Settings and saved files
+    survive disconnect/reconnect. Reset restores operating settings and leaves
+    saved files intact. Timers, digital I/O and communication settings are stored
+    without background execution or external I/O. Recordings capture one sample
+    when started and one when stopped. No VISA manager or OS files are opened.
 
-    def __enter__(self) -> "DP800":
-        """Return this instance without opening a connection.
+    Parameters
+    ----------
+    check_errors : bool, optional
+        Raise queued instrument errors after commands, default True.
+    model : str, optional
+        DP800 model, default DP832A. Physical channel limits follow this model.
+    serial_number : str, optional
+        Serial number returned by identity, default VIRTUAL0001.
+    load_resistance : float or None, optional
+        Positive load resistance in ohms for each output; None means open circuit.
+    """
 
-        Returns
-        -------
-        value : DP800
-            This driver instance.
-        """
-        return self
-
-    def __exit__(
+    def __init__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
+        check_errors: bool = True,
+        *,
+        model: str = "DP832A",
+        serial_number: str = "VIRTUAL0001",
+        load_resistance: float | None = None,
     ) -> None:
-        """Disconnect on exit without suppressing exceptions from the block.
+        """Initialize isolated state without opening a VISA session."""
+        super().__init__()
+        if model.upper().removesuffix("A") not in _RANGES:
+            raise ValueError("Unsupported DP800 model.")
+        if load_resistance is not None and (
+            not math.isfinite(load_resistance) or load_resistance <= 0
+        ):
+            raise ValueError("load_resistance must be finite and positive.")
+        if any(char in serial_number for char in ",;\r\n"):
+            raise ValueError("Invalid serial number.")
+        self._automatic_error_checks = check_errors
+        self._virtual = _VirtualResource(model.upper(), serial_number, load_resistance)
 
-        Parameters
-        ----------
-        exc_type : type[BaseException] or None
-            Type of exception raised by the block, or None for normal completion.
-        exc_value : BaseException or None
-            Exception raised by the block, or None for normal completion.
-        traceback : TracebackType or None
-            Exception traceback, or None for normal completion.
-        """
-        self.disconnect()
-
-    # --- Connection lifecycle ---
+    @property
+    def _connected(self) -> bool:
+        """Whether this virtual driver currently has a connection."""
+        return self._instr is not None
 
     def connect(
         self,
@@ -70,1929 +173,1069 @@ class DP800:
         resource_manager: pyvisa.ResourceManager | None = None,
         **resource_kwargs: Any,
     ) -> None:
-        """Connect virtually, without opening hardware or resetting state.
+        """Connect to the in-memory supply without creating or using a manager.
 
         Parameters
         ----------
         resource_name : str
-            Full VISA resource name, e.g. "ASRL2::INSTR", "GPIB0::14::INSTR" etc. See
-            https://pyvisa.readthedocs.io/en/latest/introduction/names.html for more
-            info on correct formatting for resource names.
-        resource_manager : pyvisa.ResourceManager, optional
-            Accepted for compatibility with the hardware driver, but never used,
-            retained, or closed. No manager is created by the virtual driver.
+            Accepted for API parity; no address is contacted.
+        resource_manager : pyvisa.ResourceManager or None, optional
+            Accepted but never used or closed.
         resource_kwargs : dict
-            Accepted for compatibility with the hardware driver. Conflicting
-            encoding/termination values emit a warning and are ignored in favor
-            of the driver-owned constants.
-            Other values are ignored by this placeholder implementation.
-
-        Raises
-        ------
-        RuntimeError
-            If already connected. Disconnect before connecting again.
+            Accepted VISA options. Framing conflicts warn as on the real driver;
+            other options do not affect the deterministic virtual transport.
         """
-        if self._connected:
+        if self._instr is not None:
             raise RuntimeError("Already connected; disconnect before reconnecting.")
-        for key, required in PROTOCOL_RESOURCE_SETTINGS.items():
+        for key, required in _protocol_settings(resource_name).items():
             if key in resource_kwargs and resource_kwargs[key] != required:
                 warnings.warn(
-                    f"The driver owns {key}; the supplied value "
-                    f"{resource_kwargs[key]!r} will be ignored. Using {required!r}.",
+                    f"The driver owns {key}; the supplied value {resource_kwargs[key]!r} will be ignored. Using {required!r}.",
                     stacklevel=2,
                 )
-        self._connected = True
+        self._instr = self._virtual
+        self.get_errors()
 
     def disconnect(self) -> None:
-        """Disconnect virtually; repeated calls are harmless."""
-        self._connected = False
+        """Disable physical outputs, stop running functions and disconnect.
 
-    # --- Channel views ---
-
-    @property
-    def channels(self) -> Mapping[int, DP800Channel]:
-        """Read-only mapping containing stable read/write placeholder channels.
-
-        Returns
-        -------
-        value : Mapping[int, DP800Channel]
-            Channel views keyed by one-based physical channel numbers.
+        Repeated calls are harmless. Operating settings and in-memory files remain
+        available on reconnect; output states are never restored automatically.
         """
-        return MappingProxyType(self._channels)
-
-    # --- ANALyser commands ---
-
-    # --- APPLy commands---
-
-    def set_apply(
-        self,
-        channel: int | None = None,
-        voltage: float | Literal["MIN", "MAX", "DEF"] | None = None,
-        current: float | Literal["MIN", "MAX", "DEF"] | None = None,
-    ) -> None:
-        """Select a channel and set its current and/or voltage.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, the currently selected channel will be used.
-        voltage : float; 'MIN', 'MAX', or 'DEF'; optional
-            Value to set the voltage of the selected channel to. 'MIN', 'MAX', and
-            'DEF' denote the minimum, maximum, and default settings respectively.
-        current : float; 'MIN', 'MAX', or 'DEF'; optional
-            Value to set the current of the selected channel to. 'MIN', 'MAX', and
-            'DEF' denote the minimum, maximum, and default settings respectively.
-        """
-
-        # cmd = ":APPL "
-
-        # # TODO: test what happens if channel is None on multi-channel instrument
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-
-        # # this function can be used to set voltage only
-        # if voltage is not None:
-        #     cmd += f"{voltage}"
-
-        # # this function can't be used to set current only
-        # if {voltage is not None} & {current is not None}:
-        #     cmd += f",{current}"
-
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_apply(
-        self,
-        channel: int | None = None,
-        function: Literal["CURR", "VOLT"] | None = None,
-    ) -> float:
-        """Get the voltage and/or current of the selected channel.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, the currently selected channel will be used.
-        function : 'CURR' or 'VOLT', optional
-            Function to query: current ('CURR') or voltage ('VOLT'). If both are
-            omitted the query will return the channel range and both the current and
-            voltage values.
-
-        Returns
-        -------
-        resp : float or list
-            If both `channel` and `function` are specified, the set value of the
-            desired function is returned. If `function` is omitted, a list is returned
-            comprised of the currently selected channel, its rated values, the set
-            value of the voltage, and the set value of the current.
-        """
-        # cmd = ":APPL?"
-
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-
-        # # channel cannot be omitted on its own. If channel is omitted, function also
-        # # has to be omitted.
-        # if (channel is not None) & (function is not None):
-        #     cmd += f",{function}"
-        #     resp = float(self._instr.query(cmd))
-
-        #     if self.check_errors is True:
-        #         self.get_errors()
-
-        #     return resp
-        # elif (channel is None) & (function is not None):
-        #     warnings.warn(
-        #         "When querying using APPL? you may omit both `channel` and `function` parameters or `function` only. You cannot only omit `channel`."
-        #     )
-        #     cmd += f",{function}"
-        #     resp = self._instr.query(cmd)
-
-        #     if self.check_errors is True:
-        #         self.get_errors()
-
-        #     return resp
-        # else:
-        #     ch, rating, voltage, current = self._instr.query(cmd).split(",")
-
-        #     if self.check_errors is True:
-        #         self.get_errors()
-
-        #     return ch, rating, float(voltage), float(current)
-        return 0.0
-
-    # --- DELAY commands ---
-
-    def set_delay_cycles(
-        self, finite: Literal["N", "I"], cycles: int | None = None
-    ) -> None:
-        """Set the number of cycles for the delayer.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        finite : 'N' or 'I'
-            Choose 'N' for a finite number of cycles specified by `cycles`. Choose 'I'
-            for an infinite number of cycles.
-        cycles : int, optional
-            Number of delay cycles. Defaults to 1 if omitted. If `finite` is 'I' this
-            paramter is ignored. Must be in range 1 - 99999.
-        """
-        # cmd = f":DELAY:CYCLE {finite}"
-
-        # if (finite == "N") & (cycles is not None):
-        #     cmd += f",{cycles}"
-
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_delay_cycles(self) -> str:
-        """Get the number of cycles for the delayer.
-
-        Returns
-        -------
-        resp : str or list
-            Formatted number of cycles for the delayer. Can be 'I' or list comprised of
-            'N' and and integer representing the number of cycles.
-        """
-        # cmd = ":DELAY:CYCLE?"
-        # resp = self._instr.query(cmd).split(",")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # if len(resp) == 1:
-        #     return resp[0]
-        # else:
-        #     return resp[0], int(resp[1])
-        return ""
-
-    @property
-    def delay_end_state(self) -> str:
-        """Get the state of the instrument when the delayer stops.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-
-        Returns
-        -------
-        endstate : 'ON', 'OFF', 'LAST'
-            State to put instrument in when delayer stops. 'ON' switches on the output,
-            'OFF' switches off the output, and 'LAST' uses the last state.
-        """
-        # cmd = ":DELAY:ENDS?"
-        # endstate = self._instr.query(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return endstate
-        return ""
-
-    @delay_end_state.setter
-    def delay_end_state(self, endstate: Literal["ON", "OFF", "LAST"]) -> None:
-        """Set the state of the instrument when the delayer stops.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        endstate : 'ON', 'OFF', 'LAST'
-            State to put instrument in when delayer stops. 'ON' switches on the output,
-            'OFF' switches off the output, and 'LAST' uses the last state.
-        """
-        # cmd = f":DELAY:ENDS {endstate}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    @property
-    def delay_groups(self) -> int:
-        """Get the number of output groups of the delayer.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-        The instrument supports group counts in the range 1 - 2048.
-
-        Returns
-        -------
-        groups : int
-            Number of output groups of delayer cycles, i.e. number of times output
-            turns on or off.
-        """
-        # cmd = f":DELAY:GROUP?"
-        # groups = int(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return groups
-        return 0
-
-    @delay_groups.setter
-    def delay_groups(self, groups: int) -> None:
-        """Set the number of output groups of the delayer.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        groups : int
-            Number of output groups of delayer cycles, i.e. number of times output
-            turns on or off. Must be in range 1-2048.
-        """
-        # cmd = f":DELAY:GROUP {groups}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_delay_parameters(self) -> None:
-        """Set the delayer parameters of the specified group.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        pass
-
-    def get_delay_parameters(self) -> None:
-        """Get the delayer parameters of the specified group.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        pass
-
-    def set_delay_state(self, enable: bool) -> None:
-        """Enable/disable the delay output function.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Applies to currently selected channel.
-
-        Parameters
-        ----------
-
-        Parameters
-        ----------
-        enable : bool
-            Whether the setting should be enabled.
-        """
-        pass
-
-    def get_delay_state(self, enable: bool) -> None:
-        """Get the enable/disable state of the delay output function.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Applies to current channel.
-
-        Parameters
-        ----------
-        enable : bool
-            Whether the setting should be enabled.
-        """
-        pass
-
-    def set_delay_state_pattern(self) -> None:
-        """Set the delay state pattern.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_delay_state_pattern(self) -> None:
-        """Query the delay state pattern.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_delay_stop_condition(self) -> None:
-        """Set the delay stop condition.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_delay_stop_condition(self) -> None:
-        """Query the delay stop condition.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_delay_time_method(self) -> None:
-        """Set the delay time method.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_delay_time_method(self) -> None:
-        """Query the delay time method.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    # --- DISPlay commands ---
-
-    # --- IEEE488.2 common commands ---
-
-    def clear_event_registers(self) -> None:
-        """Clear all event registers.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # self._instr.write("*CLS")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    @property
-    def standard_event_enable_register(self) -> int:
-        """Get the standard event enable register value.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-
-        Returns
-        -------
-        value : int
-            Register bitmask in the range 0 - 255; assign to enable bits.
-        """
-        # value = int(self._instr.query("*ESE?"))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return value
-        return 0
-
-    @standard_event_enable_register.setter
-    def standard_event_enable_register(self, value: int) -> None:
-        """Enable bits in the standard event enable register.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        value : int
-            Decimal value of the enable register corresponding to the sum of binary
-            weights of the bits to be enabled, e.g. to enable bits 1 and 3 only would
-            require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
-        """
-        # if (value >= 0) & (value <= 255):
-        #     self._instr.write(f"*ESE {value}")
-        # else:
-        #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
-        pass
-
-    def get_standard_event_register(self) -> int:
-        """Get the standard event register value.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        # value = int(self._instr.query("*ESR?"))
-
-        # return value
-        return 0
-
-    @property
-    def identity(self) -> str:
-        """Get the virtual instrument identity.
-
-        Returns a fixed placeholder without hardware I/O.
-
-        Returns
-        -------
-        identity : str
-            Fixed identity string for the virtual instrument.
-        """
-        # idn = self._instr.query("*IDN?").split(",")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return idn
-        return "Virtual Rigol DP800"
-
-    def set_opc(self) -> None:
-        """Set operation complete.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Sets bit 0 of the standard event register after completing the current
-        operation.
-        """
-        # self._instr.write("*OPC")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_opc(self) -> int:
-        """Query whether current operation is complete.
-
-        Returns
-        -------
-        opc : int
-            Binary value representing the completion state of the current command:
-
-                * 0 : incomplete
-                * 1 : complete
-        """
-        # opc = int(self._instr.query("*OPC?"))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return opc
-        return 0
-
-    @property
-    def option_installation_status(self) -> list[str]:
-        """Get the status of installed options.
-
-        Returns a fixed placeholder without hardware I/O.
-
-        Returns
-        -------
-        options : list of str
-            List of options. If an option is installed its name is returned, otherwise
-            the query returns a 0.
-        """
-        # options = self._instr.query("*OPT?")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return options
-        return [""]
-
-    @property
-    def power_on_status_clear_bit(self) -> int:
-        """Get the power-on status clear bit.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-
-        Returns
-        -------
-        value : int
-            Value of power-on status clear bit. Values:
-
-                * 0 : Cleared, status enable registers maintain values at power down.
-                * 1 : Set, all status and enable registers are cleared on power up.
-        """
-        # cmd = f"*PSC?"
-        # value = int(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return value
-        return 0
-
-    @power_on_status_clear_bit.setter
-    def power_on_status_clear_bit(self, value: int) -> None:
-        """Set the power-on status clear bit.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        value : {0, 1}
-            Value of power-on status clear bit. Values:
-
-                * 0 : Cleared, status enable registers maintain values at power down.
-                * 1 : Set, all status and enable registers are cleared on power up.
-        """
-        # cmd = f"*PSC {value}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def recall_setup(self, number: int) -> None:
-        """Recall instrument setup from setting buffer.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        number : {1 - 9}
-            Buffer number, 1 =< number =< 9.
-        """
-        # cmd = f"*RCL {number}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
+        if self._instr is None:
+            return
+        for state in self._virtual.channels.values():
+            state[":OUTP"] = "OFF"
+            state[":TIME"] = state[":DELAY"] = state[":MONI"] = "OFF"
+        self._virtual.remote = False
+        self._instr = None
+
+    def _check_errors(self) -> None:
+        """Honor the optional automatic error-checking flag."""
+        if self._automatic_error_checks:
+            super()._check_errors()
+
+
+class _VirtualResource(MessageBasedResource):
+    """A synchronous, in-memory transport for the public driver's command subset."""
+
+    def __init__(self, model: str, serial: str, resistance: float | None) -> None:
+        # Do not initialize Resource: that would require a real VISA manager.
+        """Initialize isolated state without opening a VISA session."""
+        self._session = None
+        self.model, self.serial, self.resistance = model, serial, resistance
+        self.base_model = model.removesuffix("A")
+        self.ranges = list(_RANGES[self.base_model])
+        self.files: dict[tuple[str, int], dict[str, Any]] = {}
+        self.external: dict[str, dict[str, Any]] = {}
+        self.directories = {ntpath.normpath("D:/")}
+        self.errors: list[str] = []
+        self.reset()
 
     def reset(self) -> None:
-        """Reset the instrument to the factory default configuration.
+        """Restore operating defaults while preserving saved in-memory files."""
+        self.ranges = list(_RANGES[self.base_model])
+        self.values = dict(_DEFAULTS)
+        self.values.update(
+            {
+                "*ESE": "0",
+                "*SRE": "0",
+                "*PSC": "1",
+                ":SYST:KLOC:STAT": "OFF",
+                ":INST:COUP": "NONE",
+            }
+        )
+        self.selected = 1
+        self.remote = False
+        self.event = 0
+        self.questionable_event = 0
+        self.instrument_event = 0
+        self.instrument_condition = 0
+        self.root_condition = 0
+        self.conditions = dict.fromkeys(range(1, len(self.ranges) + 1), 0)
+        self.channel_events = {number: 0 for number in range(1, len(self.ranges) + 1)}
+        self.channels: dict[int, dict[str, str]] = {}
+        self.timer_entries: dict[int, dict[int, tuple[float, float, float]]] = {}
+        self.delay_entries: dict[int, dict[int, tuple[bool, int]]] = {}
+        for number, (voltage, current) in enumerate(self.ranges, 1):
+            state = dict(_DEFAULTS)
+            state.update({":DELAY:GROUP": "1", ":DELAY:ENDS": "LAST"})
+            state.update(
+                {
+                    ":VOLT": "0",
+                    ":CURR": "0",
+                    ":VOLT:STEP": "0.001",
+                    ":CURR:STEP": "0.001",
+                    ":VOLT:TRIG": "0",
+                    ":CURR:TRIG": "0.1",
+                    ":OUTP": "OFF",
+                    ":OUTP:OCP": "OFF",
+                    ":OUTP:OVP": "OFF",
+                    ":OUTP:OCP:VAL": str(current),
+                    ":OUTP:OVP:VAL": str(voltage * 1.1),
+                    ":OUTP:OCP:ALAR": "NO",
+                    ":OUTP:OVP:ALAR": "NO",
+                    ":OUTP:SENS": "OFF",
+                    ":OUTP:TRAC": "OFF",
+                    ":DELAY:CYCLE": "N,1",
+                    ":TIME:CYCLE": "N,1",
+                    ":STAT:ENAB": "0",
+                    ":MONI:STOP": "OFF,OFF,OFF",
+                }
+            )
+            self.channels[number] = state
+            self.timer_entries[number] = {}
+            self.delay_entries[number] = {}
+        self.presets = {
+            (index, number): self._preset_default()
+            for index in range(1, 5)
+            for number in self.channels
+        }
+        self.preset_edits = copy.deepcopy(self.presets)
+        self.digital: dict[tuple[str, int], str] = {}
+        self.keys: dict[str, str] = {}
+        self.samples: list[tuple[float, float, float]] = []
+        self.recording: dict[str, Any] | None = None
+        self.opened: dict[str, Any] | None = None
+        self.analysis = ""
+        self.armed = False
 
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # cmd = f"*RST"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
+    def close(self) -> None:
+        # The virtual driver's persistent state remains available for reconnect.
         pass
 
-    def save_setup(self, number: int) -> None:
-        """Save the instrument setup in a settings buffer.
+    @staticmethod
+    def _preset_default() -> dict[str, str]:
+        """Build independent default preset values."""
+        return {
+            "VOLT": "1",
+            "CURR": "0.1",
+            "OCP": "OFF,1",
+            "OVP": "OFF,30",
+            "OTP": "OFF",
+            "TRAC": "OFF",
+        }
 
-        This virtual operation is a no-op; no instrument command is sent.
+    def _fail(self, message: str, code: int = -222) -> NoReturn:
+        """Report an instrument-style error for the consuming queue."""
+        raise InstrumentError(f'{code},"{message}"')
 
-        Parameters
-        ----------
-        number : {1 - 9}
-            Buffer number, 1 =< number =< 9.
-        """
-        # cmd = f"*SAV {number}"
-        # self._instr.write(cmd)
+    def _channel(self, number: int) -> dict[str, str]:
+        """Find a physical channel or report an instrument error."""
+        if number not in self.channels:
+            self._fail("Invalid channel")
+        return self.channels[number]
 
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
+    def _snapshot(self) -> dict[str, Any]:
+        """Copy the operating configuration for state-file storage."""
+        return copy.deepcopy(
+            {
+                "type": "RSF",
+                "values": self.values,
+                "channels": self.channels,
+                "timer": self.timer_entries,
+                "delay": self.delay_entries,
+                "selected": self.selected,
+            }
+        )
 
-    @property
-    def status_byte_enable_register(self) -> int:
-        """Get the status byte enable register value.
+    def _restore(self, snapshot: dict[str, Any]) -> None:
+        """Restore a copied state, timer or delay file."""
+        snapshot = copy.deepcopy(snapshot)
+        if snapshot["type"] == "RSF":
+            self.values, self.channels = snapshot["values"], snapshot["channels"]
+            self.timer_entries, self.delay_entries = (
+                snapshot["timer"],
+                snapshot["delay"],
+            )
+            self.selected = snapshot["selected"]
+        elif snapshot["type"] == "RTF":
+            self.timer_entries[self.selected] = snapshot["entries"]
+        elif snapshot["type"] == "RDF":
+            self.delay_entries[self.selected] = snapshot["entries"]
+        else:
+            self._fail("File cannot be recalled")
 
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
+    def _save(self, kind: str) -> dict[str, Any]:
+        """Build a typed file snapshot for the current channel."""
+        if kind == "RSF":
+            return self._snapshot()
+        if kind not in ("RTF", "RDF"):
+            self._fail("Invalid file type")
+        entries = self.timer_entries if kind == "RTF" else self.delay_entries
+        return {
+            "type": kind,
+            "entries": copy.deepcopy(entries[self.selected]),
+            "locked": False,
+        }
 
-        Returns
-        -------
-        value : int
-            Register bitmask in the range 0 - 255; assign to enable bits.
-        """
-        # value = int(self._instr.query("*SRE?"))
+    def _path(self, path: str) -> str:
+        """Resolve an external instrument path without accessing the host."""
+        return ntpath.normpath(ntpath.join(self.values[":MMEM:CDIR"], path))
 
-        # return value
-        return 0
+    def _sample(self, number: int) -> tuple[float, float, float]:
+        """Compute ideal DC readings and apply protection/monitor responses."""
+        state = self._channel(number)
+        if state[":OUTP"] == "OFF":
+            self._update_status(number)
+            return 0.0, 0.0, 0.0
+        voltage = float(state[":VOLT"])
+        current = (
+            0.0
+            if self.resistance is None
+            else min(abs(voltage) / self.resistance, float(state[":CURR"]))
+        )
+        if self.resistance is not None:
+            voltage = math.copysign(
+                min(abs(voltage), current * self.resistance), voltage
+            )
+        for protection, quantity in (("OCP", current), ("OVP", abs(voltage))):
+            if state[f":OUTP:{protection}"] == "ON" and quantity > abs(
+                float(state[f":OUTP:{protection}:VAL"])
+            ):
+                state[f":OUTP:{protection}:ALAR"] = "YES"
+                state[":OUTP"] = "OFF"
+                self._update_status(number)
+                return 0.0, 0.0, 0.0
+        if state[":MONI"] == "ON":
+            predicates: list[tuple[bool, str]] = []
+            for monitored_quantity, measured in (
+                ("VOLT", abs(voltage)),
+                ("CURR", current),
+                ("POWER", abs(voltage) * current),
+            ):
+                fields = state[f":MONI:{monitored_quantity}:COND"].split(",")
+                if fields[0] != "NONE":
+                    threshold = float(state[f":MONI:{monitored_quantity}"])
+                    matched = (
+                        measured < threshold
+                        if fields[0].startswith("<")
+                        else measured > threshold
+                    )
+                    predicates.append(
+                        (matched, fields[1] if len(fields) > 1 else "NONE")
+                    )
+            if predicates:
+                matched = predicates[0][0]
+                for index in range(1, len(predicates)):
+                    matched = (
+                        matched and predicates[index][0]
+                        if predicates[index - 1][1] == "AND"
+                        else matched or predicates[index][0]
+                    )
+                if matched and state[":MONI:STOP"].split(",")[0] == "ON":
+                    state[":OUTP"] = "OFF"
+                    self._update_status(number)
+                    return 0.0, 0.0, 0.0
+        self._update_status(number)
+        return voltage, current, abs(voltage) * current
 
-    @status_byte_enable_register.setter
-    def status_byte_enable_register(self, value: int) -> None:
-        """Enable bits in the status byte enable register.
+    def _bound(self, header: str, number: int, upper: bool) -> float:
+        """Return approximate model-specific limits used by virtual queries."""
+        voltage, current = self.ranges[number - 1]
+        if not upper:
+            return (
+                voltage
+                if voltage < 0 and ("VOLT" in header or "OVP" in header)
+                else 0.0
+            )
+        if "CURR" in header or "OCP" in header:
+            return current * (1.1 if "OCP" in header else 1)
+        if "VOLT" in header or "OVP" in header or "MAXV" in header or "MINV" in header:
+            return max(0.0, voltage * (1.1 if "OVP" in header else 1))
+        if header.startswith(":MONI:POWER"):
+            return abs(voltage * current)
+        if header in (":SYST:BRIG", ":SYST:CONT"):
+            return 100.0
+        if header == ":TRIG:DEL":
+            return 3600.0
+        return 99999.0
 
-        This virtual operation is a no-op; no instrument command is sent.
+    def _numeric(self, value: str, header: str, number: int) -> str:
+        """Resolve symbolic setpoints and reject invalid numeric settings."""
+        state = self._channel(number)
+        value = value.upper()
+        if value in ("MIN", "MAX"):
+            return str(self._bound(header, number, value == "MAX"))
+        if value in ("UP", "DOWN"):
+            return str(
+                float(state[header])
+                + (1 if value == "UP" else -1) * float(state[header + ":STEP"])
+            )
+        if value == "DEF":
+            return "0.001"
+        result = float(value)
+        if not math.isfinite(result):
+            self._fail("Invalid numeric value")
+        if header in (":VOLT", ":CURR", ":VOLT:TRIG", ":CURR:TRIG"):
+            low, high = self._bound(header, number, False), self._bound(
+                header, number, True
+            )
+            if not low <= result <= high:
+                self._fail("Setpoint out of range")
+        return str(result)
 
-        Parameters
-        ----------
-        value : int
-            Decimal value of the enable register corresponding to the sum of binary
-            weights of the bits to be enabled, e.g. to enable bits 1 and 3 only would
-            require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
-        """
-        # if (value >= 0) & (value <= 255):
-        #     self._instr.write(f"*SRE {value}")
-        # else:
-        #     raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
-        pass
+    def write(
+        self, message: str, termination: str | None = None, encoding: str | None = None
+    ) -> int:
+        """Execute one driver write and queue any instrument-style error."""
+        try:
+            self._execute(message, False)
+        except (InstrumentError, ValueError, KeyError, IndexError) as error:
+            self.errors.append(
+                str(error)
+                if isinstance(error, InstrumentError)
+                else '-222,"Invalid parameter"'
+            )
+            self.event |= 32
+        return len(message)
 
-    @property
-    def status_byte_register(self) -> int:
-        """Get the status byte register value.
+    def query(self, message: str, delay: float | None = None) -> str:
+        """Return one response, retaining errors for the normal queue check."""
+        if message.strip().upper() == ":SYST:ERR?":
+            return self.errors.pop(0) if self.errors else '0,"No error"'
+        try:
+            return self._execute(message, True)
+        except (InstrumentError, ValueError, KeyError, IndexError) as error:
+            self.errors.append(
+                str(error)
+                if isinstance(error, InstrumentError)
+                else '-222,"Invalid parameter"'
+            )
+            self.event |= 32
+            return ""
 
-        Querying this register does not clear it.
-
-        Returns a fixed placeholder without hardware I/O.
-
-        Returns
-        -------
-        value : int
-            Register value.
-        """
-        # value = int(self._instr.query("*STB?"))
-
-        # return value
-        return 0
-
-    def trigger(self) -> None:
-        """Generate a trigger.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Only available when bus (software) trigger is selected.
-        """
-        # self._instr.write("*TRG")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    @property
-    def self_test_results(self) -> list[str]:
-        """Get the results of the instrument self-test.
-
-        Returns a fixed placeholder without hardware I/O.
-
-        Returns
-        -------
-        result : list
-            List of test results for the top board, bottom board, and fan.
-        """
-        # result = self._instr.query("*TST?").split(",")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return result
-        return []
-
-    def wait(self) -> None:
-        """Wait until processing all pending commands is complete.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # self._instr.write("*WAI")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    # --- INITiate command ---
-
-    def init_trigger(self) -> None:
-        """Initialise the trigger system.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # cmd = ":INIT"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    # --- INSTrument commands ---
-
-    @property
-    def trigger_coupling_channels(self) -> str:
-        """Get trigger coupling channels.
-
-        Only applicable to multi-channel models.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-        Assign "ALL", "NONE", or a list of at least two channel names.
-
-        Returns
-        -------
-        channels : str or list
-            If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
-            where each element is a channel name and rating separated by a `:`.
-        """
-        # channels = self._instr.query(":INST:COUP?").split(",")
-        # if len(channels) == 1:
-        #     channels = channels[0]
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return channels
+    def _execute(self, message: str, query: bool) -> str:
+        """Dispatch the command subset emitted by the public hardware API."""
+        head, _, tail = message.strip().partition(" ")
+        head = head.upper().removesuffix("?")
+        args = _fields(tail) if tail else []
+        number = self.selected
+        if head.startswith(":SOUR"):
+            source, _, suffix = head[1:].partition(":")
+            number = int(source[4:])
+            head = ":" + suffix
+        if head.startswith(":OUTP") and args and args[0].upper().startswith("CH"):
+            number = int(args.pop(0)[2:])
+        state = self._channel(number)
+        scoped = head.startswith(
+            (":DELAY", ":TIME", ":MONI", ":TRIG:DEL", ":TRIG:SOUR")
+        )
+        values = (
+            state
+            if scoped or head.startswith((":CURR", ":VOLT", ":OUTP"))
+            else self.values
+        )
+        if head == "*IDN":
+            return f"RIGOL,{self.model},{self.serial},VIRTUAL"
+        if head == "*OPT":
+            return "DP8-ACCURACY,DP8-ANALYZER,DP8-MONITOR,DP8-LAN,DP8-RS232,DP8-TRIGGER"
+        if head == "*TST":
+            return "TopBoard:PASS,BottomBoard:PASS,Fan:PASS"
+        if head == "*RST":
+            self.reset()
+            self.errors.clear()
+            return ""
+        if head == "*CLS":
+            self.event = self.questionable_event = self.instrument_event = 0
+            self.channel_events = dict.fromkeys(self.channels, 0)
+            self.errors.clear()
+            return ""
+        if head == "*OPC":
+            if not query:
+                self.event |= 1
+            return "1"
+        if head == "*ESR":
+            result, self.event = self.event, 0
+            return str(result)
+        if head == "*STB":
+            return str(
+                (32 if self.event & int(self.values["*ESE"]) else 0)
+                | (4 if self.errors else 0)
+            )
+        if head in ("*WAI", ":SYST:BEEP:IMM", ":SYST:COMM:LAN:APPL"):
+            return ""
+        if head in ("*TRG", ":INIT"):
+            if head == ":INIT":
+                self.armed = True
+            if self.armed and (head == "*TRG" or state[":TRIG:SOUR"] == "IMM"):
+                targets = {number}
+                coupling = self.values[":INST:COUP"]
+                if coupling == "ALL":
+                    targets.update(self.channels)
+                elif coupling != "NONE":
+                    targets.update(int(token[2:]) for token in coupling.split(","))
+                for target in targets:
+                    target_state = self._channel(target)
+                    target_state[":VOLT"], target_state[":CURR"] = (
+                        target_state[":VOLT:TRIG"],
+                        target_state[":CURR:TRIG"],
+                    )
+                    self._sample(target)
+                self.armed = False
+            return ""
+        if head in (":SYST:REM", ":SYST:LOC"):
+            self.remote = head.endswith("REM")
+            return ""
+        if head == ":SYST:SELF:TEST:TEMP":
+            return "25.0"
+        if head == ":SYST:SELF:TEST:BOARD":
+            return "PASS" if args else "PASS,PASS"
+        if head == ":INST":
+            candidate = int(args[0][2:])
+            self._channel(candidate)
+            self.selected = candidate
+            return ""
+        if head == ":INST:NSEL":
+            return str(self.selected)
+        if head == ":INST:COUP" and query:
+            coupling = self.values[head]
+            if coupling in ("ALL", "NONE"):
+                return coupling
+            return ",".join(
+                f"{item}:{self._rating(int(item[2:]))}" for item in coupling.split(",")
+            )
+        if head == ":APPL":
+            if args and args[0].startswith("CH"):
+                number = int(args.pop(0)[2:])
+                state = self._channel(number)
+            if query:
+                if args:
+                    return state[":" + args[0]]
+                return f"CH{number},{self._rating(number)},{state[':VOLT']},{state[':CURR']}"
+            for header, value in zip((":VOLT", ":CURR"), args):
+                state[header] = self._numeric(value, header, number)
+            self.selected = number
+            return ""
+        if head.startswith(":MEAS"):
+            if args:
+                number = int(args[0][2:])
+            sample = self._sample(number)
+            quantity = head.removeprefix(":MEAS").strip(":")
+            return (
+                ",".join(map(str, sample))
+                if quantity == "ALL"
+                else str(sample[{"": 0, "VOLT": 0, "CURR": 1, "POWE": 2}[quantity]])
+            )
+        if head == ":OUTP:MODE":
+            voltage, current, _ = self._sample(number)
+            return (
+                "CC"
+                if state[":OUTP"] == "ON"
+                and self.resistance is not None
+                and abs(float(state[":VOLT"])) / self.resistance > float(state[":CURR"])
+                else "CV"
+            )
+        if head in (":OUTP:SENS", ":OUTP:TRAC"):
+            sense = self.base_model in ("DP811", "DP813") or (
+                self.base_model in ("DP821", "DP822") and number == 2
+            )
+            tracking = (self.base_model == "DP831" and number in (2, 3)) or (
+                self.base_model == "DP832" and number in (1, 2)
+            )
+            if not (sense if head.endswith("SENS") else tracking):
+                if query:
+                    return "NONE"
+                self._fail("Function unavailable on channel")
+        if head in (
+            ":CURR:PROT:CLE",
+            ":VOLT:PROT:CLE",
+            ":OUTP:OCP:CLEAR",
+            ":OUTP:OVP:CLEAR",
+        ):
+            protection = "OCP" if "CURR" in head or "OCP" in head else "OVP"
+            state[f":OUTP:{protection}:ALAR"] = "NO"
+            if ":PROT:" in head:
+                state[":OUTP"] = "ON"
+            self._sample(number)
+            return ""
+        if head == ":OUTP:RANG":
+            if len(self.channels) != 1:
+                self._fail("Range is only available on single-channel models")
+            if not query:
+                high = args[0] in ("HIGH", "P40V")
+                self.ranges[0] = (
+                    (40.0, 5.0)
+                    if self.base_model == "DP811" and high
+                    else (
+                        (20.0, 10.0)
+                        if self.base_model == "DP811"
+                        else (20.0, 10.0) if high else (8.0, 20.0)
+                    )
+                )
+            return self._rating(1)
+        if head == ":DISP:TEXT:CLE":
+            self.values[":DISP:TEXT"] = '""'
+            return ""
+        if head == ":DISP:TEXT" and not query:
+            self.values[head] = '"' + args[0].replace('"', '""') + '"'
+            return ""
+        if head == ":SYST:KLOC":
+            if query:
+                return self.keys.get(args[0], self.keys.get("ALL", "0"))
+            if args[0] == "ALL":
+                self.keys.clear()
+            self.keys[args[0]] = "1" if args[1] == "ON" else "0"
+            return ""
+        if head.startswith(":PRES"):
+            return self._preset(head, args, query, number)
+        if head.startswith(":MEM:") or head in ("*SAV", "*RCL", ":STOR:LOC"):
+            return self._memory(head, args, query)
+        if head.startswith(":MMEM"):
+            return self._external(head, args, query)
+        if head.startswith(":REC"):
+            return self._recorder(head, args, query, number)
+        if head.startswith(":ANAL"):
+            return self._analyzer(head, args, query)
+        if head in (":TIME:PARA", ":DELAY:PARA"):
+            entries = (
+                self.timer_entries[number]
+                if head.startswith(":TIME")
+                else self.delay_entries[number]
+            )
+            first = int(args[0])
+            if query:
+                count = int(args[1]) if len(args) > 1 else 1
+                rows = []
+                for index in range(first, first + count):
+                    entry = entries.get(
+                        index,
+                        (
+                            (1.0, 0.1, 1.0)
+                            if head.startswith(":TIME")
+                            else (bool(index % 2), 1)
+                        ),
+                    )
+                    rows.append(
+                        f"{index},"
+                        + ",".join(
+                            (
+                                ("ON" if item else "OFF")
+                                if isinstance(item, bool)
+                                else str(item)
+                            )
+                            for item in entry
+                        )
+                        + ";"
+                    )
+                payload = "".join(rows)
+                return f"#9{len(payload):09d}{payload}"
+            if not 0 <= first <= 2047:
+                self._fail("Entry index out of range")
+            if head.startswith(":TIME"):
+                voltage, current, duration = (float(value) for value in args[1:])
+                self.timer_entries[number][first] = (voltage, current, duration)
+            else:
+                self.delay_entries[number][first] = (args[1] == "ON", int(args[2]))
+            return ""
+        if head == ":TIME:TEMP:CONST":
+            self._construct_template(number)
+            return ""
+        if head == ":MONI:STOP":
+            if not query:
+                actions = state[head].split(",")
+                if args[0] == "NONE":
+                    actions = ["OFF"] * 3
+                else:
+                    actions[{"OUTOFF": 0, "WARN": 1, "BEEPER": 2}[args[0]]] = args[1]
+                state[head] = ",".join(actions)
+            return state[head]
+        if head.startswith(":TRIG:IN") or head.startswith(":TRIG:OUT"):
+            return self._digital(head, args, query)
+        if head.startswith(":STAT:QUES"):
+            return self._status(head, args, query)
+        if head == ":LIC:SET":
+            if len(args[0]) != 28 or not args[0].isascii() or not args[0].isalnum():
+                self._fail("Invalid option license")
+            return ""
+        if head in values:
+            if not query and head in (":TIME", ":DELAY") and args == ["ON"]:
+                other_function = ":DELAY" if head == ":TIME" else ":TIME"
+                if state[other_function] == "ON":
+                    self._fail("Timer and delayer cannot run together")
+            if query:
+                if args and args[-1] in ("MIN", "MAX", "DEF"):
+                    return (
+                        "0.001"
+                        if args[-1] == "DEF"
+                        else str(self._bound(head, number, args[-1] == "MAX"))
+                    )
+                return values[head]
+            if head in (
+                ":VOLT",
+                ":CURR",
+                ":VOLT:STEP",
+                ":CURR:STEP",
+                ":VOLT:TRIG",
+                ":CURR:TRIG",
+                ":OUTP:OCP:VAL",
+                ":OUTP:OVP:VAL",
+            ):
+                values[head] = self._numeric(args[0], head, number)
+            else:
+                values[head] = ",".join(args)
+                if head in (":TIME:CYCLE", ":DELAY:CYCLE") and args == ["N"]:
+                    values[head] = "N,1"
+                if head in (
+                    ":SYST:BRIG",
+                    ":SYST:CONT",
+                    ":MONI:VOLT",
+                    ":MONI:CURR",
+                    ":MONI:POWER",
+                    ":TIME:TEMP:MAXV",
+                    ":TIME:TEMP:MINV",
+                    ":TRIG:DEL",
+                ):
+                    values[head] = self._numeric(args[0], head, number)
+                    if head in (":SYST:BRIG", ":SYST:CONT"):
+                        values[head] = str(int(float(values[head])))
+                if head == ":SYST:LANG:TYPE":
+                    values[head] = {
+                        "EN": "English",
+                        "CH": "Chinese",
+                        "JAP": "Japanese",
+                        "KOR": "Korean",
+                        "GER": "German",
+                        "POR": "Portuguese",
+                        "POL": "Polish",
+                        "CHT": "Traditional Chinese",
+                        "RUS": "Russian",
+                    }.get(args[0], args[0])
+                if head == ":SYST:POWE" and args[0] == "DEF":
+                    values[head] = "DEFAULT"
+            if head in (
+                ":VOLT",
+                ":CURR",
+                ":OUTP",
+                ":OUTP:OCP:VAL",
+                ":OUTP:OVP:VAL",
+                ":OUTP:OCP",
+                ":OUTP:OVP",
+                ":MONI",
+            ):
+                self._sample(number)
+            if head == ":OUTP" and self.values[":SYST:ONOFFS"] == "ON":
+                for other in self.channels.values():
+                    other[head] = args[0]
+            pair = (2, 3) if self.base_model == "DP831" else (1, 2)
+            if self.base_model in ("DP831", "DP832") and number in pair:
+                other_number = pair[1] if number == pair[0] else pair[0]
+                other_state = self.channels[other_number]
+                if head == ":OUTP:TRAC" and self.values[":SYST:TRACKM"] == "SYNC":
+                    other_state[head] = state[head]
+                if head == ":VOLT" and state[":OUTP:TRAC"] == "ON":
+                    other_state[head] = str(
+                        math.copysign(
+                            abs(float(state[head])), self.ranges[other_number - 1][0]
+                        )
+                    )
+                    self._sample(other_number)
+            if head == ":DELAY:STAT:GEN":
+                enabled = args[0] == "10P"
+                for index in range(int(state[":DELAY:GROUP"])):
+                    _, duration = self.delay_entries[number].get(index, (False, 1))
+                    self.delay_entries[number][index] = (
+                        enabled ^ bool(index % 2),
+                        duration,
+                    )
+            if head == ":DELAY:TIME:GEN":
+                method, base_time, step = (args + ["1", "1"])[0:3]
+                for index in range(int(state[":DELAY:GROUP"])):
+                    enabled, _ = self.delay_entries[number].get(
+                        index, (bool(index % 2), 1)
+                    )
+                    duration = (
+                        int(base_time)
+                        if method == "FIX" and enabled
+                        else (
+                            int(step)
+                            if method == "FIX"
+                            else int(base_time)
+                            + (1 if method == "INC" else -1) * index * int(step)
+                        )
+                    )
+                    self.delay_entries[number][index] = (enabled, max(1, duration))
+            return ""
+        self._fail("Undefined header", -113)
         return ""
 
-    @trigger_coupling_channels.setter
-    def trigger_coupling_channels(self, channels: str | list[str]) -> None:
-        """Set trigger coupling channels.
+    def _rating(self, number: int) -> str:
+        """Format the nominal voltage/current rating of a physical output."""
+        voltage, current = self.ranges[number - 1]
+        return f"{voltage:g}V/{current:g}A"
 
-        This virtual operation is a no-op; no instrument command is sent.
+    def _preset(self, head: str, args: list[str], query: bool, number: int) -> str:
+        """Apply or edit the selected channel in a user preset."""
+        if head == ":PRES:KEY":
+            if not query:
+                self.values[head] = args[0]
+            return self.values[head]
+        if head == ":PRES":
+            key = self.values[":PRES:KEY"]
+            preset = (
+                self._preset_default()
+                if key == "DEFAULT"
+                else self.presets[(int(key[4:]), number)]
+            )
+            state = self.channels[number]
+            state[":VOLT"], state[":CURR"] = preset["VOLT"], preset["CURR"]
+            for protection in ("OCP", "OVP"):
+                enabled, threshold = preset[protection].split(",")
+                state[f":OUTP:{protection}"] = enabled
+                state[f":OUTP:{protection}:VAL"] = threshold
+            self.values[":SYST:OTP"] = preset["OTP"]
+            state[":OUTP:TRAC"] = preset["TRAC"]
+            self._sample(number)
+            return ""
+        index = int(head.partition("USER")[2].partition(":")[0])
+        setting = head.rsplit(":", 1)[-1]
+        if setting == "DEF":
+            self.preset_edits[(index, number)] = self._preset_default()
+            return ""
+        if setting == "SURE":
+            self.presets[(index, number)] = copy.deepcopy(
+                self.preset_edits[(index, number)]
+            )
+            return ""
+        preset = self.preset_edits[(index, number)]
+        if not query:
+            if setting in ("OCP", "OVP") and len(args) == 1:
+                args.append(preset[setting].split(",")[1])
+            if setting in ("CURR", "VOLT"):
+                args[0] = self._numeric(args[0], ":" + setting, number)
+            if setting in ("OCP", "OVP") and args[-1] in ("MIN", "MAX"):
+                args[-1] = str(
+                    self._bound(":OUTP:" + setting + ":VAL", number, args[-1] == "MAX")
+                )
+            preset[setting] = ",".join(args)
+        if query and args and args[0] in ("MIN", "MAX"):
+            bound = str(self._bound(":" + setting, number, args[0] == "MAX"))
+            return (
+                preset[setting].split(",")[0] + "," + bound
+                if setting in ("OCP", "OVP")
+                else bound
+            )
+        return preset[setting]
 
-        Only applicable to multi-channel models.
-
-        Parameters
-        ----------
-        channels : 'ALL', 'NONE', or list containing 'CH1', 'CH2', 'CH3'
-            Trigger coupling channels. If list, should contain at least two channels.
-        """
-        # cmd = ":INST:COUP "
-        # if type(channels) is list:
-        #     channels = channels.join(",")
-        # cmd += channels
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    @property
-    def selected_channel(self) -> int:
-        """Get the currently selected channel.
-
-        Only applicable to multi-channel models.
-
-        The instrument provides two functions for this: NSELct and SELect. NSELect
-        returns a bare number, e.g. 2, whereas SELect returns a channel name and
-        rated ouptut. This method always uses NSELect because fewer characters are
-        exchanged in the query operation.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-
-        Returns
-        -------
-        channel : int
-            Currently selected channel number.
-        """
-        # channel = int(self._instr.query(":INST:NSEL?"))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return channel
-        return 0
-
-    @selected_channel.setter
-    def selected_channel(self, channel: int) -> None:
-        """Select the current channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Only applicable to multi-channel models.
-
-        The instrument provides two functions for this: NSELct and SELect. NSELect
-        uses a bare number, e.g. 2, whereas SELect requires 'CH' be prepended. This
-        method always uses SELect (omitting redundant ":SEL") because it requires
-        fewer characters to be sent to the instrument.
-
-        Parameters
-        ----------
-        channel : int
-            Channel number.
-        """
-        # self._instr.write(f":INST CH{channel}")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    # --- LIC commands ---
-
-    def install_options(self, options_licence: str) -> None:
-        """Install options.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Only applicable to DP831/DP832/DP821/DP811.
-
-        Parameters
-        ----------
-        options_licence : str
-            Unique 28-byte ASCII string only including English letters and numbers.
-        """
-        # self._instr.write(f":LIC:SET {options_licence}")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    # --- MEASure commands ---
-
-    def measure(
-        self,
-        func: Literal["ALL", "CURR", "POWE", "VOLT"] | None = None,
-        channel: int | None = None,
-    ) -> float:
-        """Read the voltage, current, and/or power of a channel.
-
-        Parameters
-        ----------
-        func : 'ALL', 'CURR', 'POWE', 'VOLT'; optional
-            Function to measure. 'ALL' measures all functions. If omitted, measures voltage.
-        channel : int, optional
-            Channel to read. If not given, the query will return the measurement for
-            the currently selected channel.
-
-        Returns
-        -------
-        values : float or list of float
-            Measurement value(s).
-        """
-        # cmd = f":MEAS"
-        # if func is not None:
-        #     cmd += f":{func}"
-        # cmd += "?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # values = self._instr.query(cmd).split(",")
-        # if len(values) == 1:
-        #     values = values[0]
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return values
-        return 0.0
-
-    # --- MEMory commands ---
-
-    # --- MMEMory commands ---
-
-    # --- MONItor commands ---
-
-    # --- OUTPut commands ---
-
-    def get_output_mode(self, channel: int | None = None) -> str:
-        """Get the output mode of the specified channel.
-
-        The instrument offers two functionally equivalent commands to query the output
-        mode: :OUTPut:CVCC? and :OUTPut:MODE?. There is no difference in the amount of
-        data transferred. This method uses :OUTPut:MODE?.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        mode : str
-            Output mode: 'CV', 'CC', or 'UR' representing constant voltage, constant
-            current, or unregulated, respectively.
-        """
-        # cmd = ":OUTP:MODE?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # mode = self._instr.query(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return mode
+    def _memory(self, head: str, args: list[str], query: bool) -> str:
+        """Handle typed internal file storage and locking."""
+        kind = "RSF" if head in ("*SAV", "*RCL", ":STOR:LOC") else args.pop(0)
+        slot = int(args.pop(0))
+        if not 1 <= slot <= 10:
+            self._fail("Invalid memory slot")
+        key = (kind, slot)
+        if head.endswith(":VAL"):
+            return "YES" if key in self.files else "NO"
+        if head.endswith(":LOCK"):
+            if query:
+                return "YES" if self.files.get(key, {}).get("locked", False) else "NO"
+            self.files[key]["locked"] = args[0] == "ON"
+            return ""
+        if head in ("*RCL", ":MEM:LOAD"):
+            self._restore(self.files[key])
+            return ""
+        if self.files.get(key, {}).get("locked", False):
+            self._fail("File is locked")
+        if head == ":MEM:DEL":
+            del self.files[key]
+        else:
+            self.files[key] = self._save(kind)
+            self.files[key]["name"] = args[0] if args else f"RIGOL{slot}.{kind}"
         return ""
 
-    def get_ocp(self, channel: int | None = None) -> bool:
-        """Query whether current of a channel has exceeded its OCP value.
-
-        The output turns off automatically when the overcurrent protection (OCP) value
-        is exceeded.
-
-        The instrument offers two functionally equivalent commands to query whether the
-        OCP value has been exceeded: :OUTPut:OCP:ALAR? and :OUTPut:OCP:QUES?. There is
-        no difference in the amount of data transferred. This method uses
-        :OUTPut:OCP:ALAR?.
-
-        The instrument also provides a `source` command for this function, which is not
-        used.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        ocp_alarm : bool
-            If True, overcurrent protection value has been exceeded.
-        """
-        # cmd = ":OUTP:OCP:ALAR?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # ocp_alarm = self._instr.query(cmd)
-        # if ocp_alarm == "YES":
-        #     ocp_alarm = True
-        # else:
-        #     ocp_alarm = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return ocp_alarm
-        return False
-
-    def clear_ocp_label(self, channel: int | None = None) -> None:
-        """Clear the overcurrent protection alarm label.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OCP:CLEAR"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_ocp_enable(self, enable: bool, channel: int | None = None) -> None:
-        """Enable/disable the overcurrent protection function.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        enable : bool
-            Enabled/disable overcurrent protection function.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OCP "
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-        # if enable is True:
-        #     cmd += "ON"
-        # else:
-        #     cmd += "OFF"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_ocp_enable(self, channel: int | None = None) -> bool:
-        """Query enable/disabled state of the overcurrent protection function.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of overcurrent protection function.
-        """
-        # cmd = ":OUTP:OCP?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # enable = self._instr.query(cmd)
-        # if enable == "ON":
-        #     enable = True
-        # else:
-        #     enable = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return enable
-        return False
-
-    def set_ocp_value(
-        self, value: float | Literal["MIN", "MAX"], channel: int | None = None
-    ) -> None:
-        """Set the overcurrent protection value for a channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        value : float; 'MIN', 'MAX'
-            Overcurrent protection value.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OCP:VAL "
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-        # cmd += f"{value}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_ocp_value(self, channel: int | None = None) -> float:
-        """Get the overcurrent protection value for a channel.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        value : float
-            Overcurrent protection value.
-        """
-        # # TODO: Manual suggests this function can also take MIN and MAX arguments. Test
-        # # what this does.
-        # cmd = ":OUTP:OCP:VAL?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-
-        # # TODO: test if float is returned when set to MIN or MAX
-        # value = float(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return value
-        return 0.0
-
-    def get_ovp(self, channel: int | None = None) -> bool:
-        """Query whether current of a channel has exceeded its OVP value.
-
-        The output turns off automatically when the overvoltage protection (OVP) value
-        is exceeded.
-
-        The instrument offers two functionally equivalent commands to query whether the
-        OVP value has been exceeded: :OUTPut:OVP:ALAR? and :OUTPut:OVP:QUES?. There is
-        no difference in the amount of data transferred. This method uses
-        :OUTPut:OVP:ALAR?.
-
-        The instrument also provides a `source` command for this function, which is not
-        used.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        ovp_alarm : bool
-            If True, overvoltage protection value has been exceeded.
-        """
-        # cmd = ":OUTP:OVP:ALAR?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # ovp_alarm = self._instr.query(cmd)
-        # if ovp_alarm == "YES":
-        #     ovp_alarm = True
-        # else:
-        #     ovp_alarm = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return ovp_alarm
-        return False
-
-    def clear_ovp_label(self, channel: int | None = None) -> None:
-        """Clear the overvoltage protection alarm label.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OVP:CLEAR"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_ovp_enable(self, enable: bool, channel: int | None = None) -> None:
-        """Enable/disable the overvoltage protection function.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        enable : bool
-            Enable/disable overvoltage protection function.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OVP "
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-        # if enable is True:
-        #     cmd += "ON"
-        # else:
-        #     cmd += "OFF"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_ovp_enable(self, channel: int | None = None) -> bool:
-        """Query enable/disabled state of the overvoltage protection function.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of overvoltage protection function.
-        """
-        # cmd = ":OUTP:OVP?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # enable = self._instr.query(cmd)
-        # if enable == "ON":
-        #     enable = True
-        # else:
-        #     enable = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return enable
-        return False
-
-    def set_ovp_value(
-        self, value: float | Literal["MIN", "MAX"], channel: int | None = None
-    ) -> None:
-        """Set the overvoltage protection value for a channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        value : float; 'MIN', 'MAX'
-            Overvoltage protection value.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:OVP:VAL "
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-        # cmd += f"{value}"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_ovp_value(self, channel: int | None = None) -> float:
-        """Get the overvoltage protection value for a channel.
-
-        The instrument provides two commands to set this function. This method uses
-        the `output` command rather than the `source` command.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        value : float
-            Overvoltage protection value.
-        """
-        # # TODO: Manual suggests this function can also take MIN and MAX arguments. Test
-        # # what this does.
-        # cmd = ":OUTP:OVP:VAL?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-
-        # # TODO: test if float is returned when set to MIN or MAX
-        # value = float(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return value
-        return 0.0
-
-    def set_output_range(self, range: str) -> None:
-        """Only applicable to single channel model.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        range : str
-            Requested output range.
-        """
-        pass
-
-    def set_output_sense_enable(self, enable: bool, channel: int | None = None) -> None:
-        """Enable/disable output sense function.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Only supported on some channels for some models.
-
-        Parameters
-        ----------
-        enable : bool
-            Enable/disable the sense function.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP:SENS "
-        # if channel is not None:
-        #     cmd += f"CH{channel},"
-        # if enable is True:
-        #     cmd += "ON"
-        # else:
-        #     cmd += "OFF"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_output_sense_enable(self, channel: int | None = None) -> bool:
-        """Get enable/disable state of output sense function.
-
-        Only supported on some channels for some models.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of the sense function.
-        """
-        # cmd = ":OUTP:SENS?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # enable = self._instr.query(cmd)
-        # if enable == "ON":
-        #     enable = True
-        # else:
-        #     # On models where the function is not supported the instrument returns
-        #     # 'NONE'. This is represented by this function as disabled.
-        #     enable = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return enable
-        return False
-
-    def set_output_enable(self, enable: bool, channel: int | None = None) -> None:
-        """Enable/disable the output of a channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        enable : bool
-            Enabled/disabled state of the channel output
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = ":OUTP "
-        # if channel is not None:
-        #     cmd += f" CH{channel},"
-        # if enable is True:
-        #     cmd += "ON"
-        # else:
-        #     cmd += "OFF"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_output_enable(self, channel: int | None = None) -> bool:
-        """Get enabled/disabled state of the output of a channel.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of the channel output.
-        """
-        # cmd = ":OUTP?"
-        # if channel is not None:
-        #     cmd += f" CH{channel}"
-        # enable = self._instr.query(cmd)
-        # if enable == "ON":
-        #     enable = True
-        # else:
-        #     enable = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return enable
-        return False
-
-    def set_output_timer(self) -> None:
-        """Set the output timer.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_output_timer(self) -> None:
-        """Query the output timer.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_output_timer_enable(self) -> None:
-        """Set the output timer enable.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_output_timer_enable(self) -> None:
-        """Query the output timer enable.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_output_track(self) -> None:
-        """Set the output track.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_output_track(self) -> None:
-        """Query the output track.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    # --- PRESet commands ---
-
-    # --- RECAll commands ---
-
-    # --- RECorder commands ---
-
-    # --- SOURce commands ---
-
-    def set_current(
-        self,
-        current: float | Literal["MIN", "MAX", "UP", "DOWN"],
-        channel: int | None = None,
-    ) -> None:
-        """Set the current of specified channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        current : float; 'MAX', 'MIN'; 'UP', 'DOWN'
-            Current level. 'UP' and 'DOWN' increment and decrement the current by step
-            setting.
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-        """
-        # cmd = f":CURR {current}"
-        # if channel is not None:
-        #     cmd = f":SOUR{channel}" + cmd
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_current(self, channel: int | None = None) -> float:
-        """Get the current setting of a channel.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, currently selected channel is used.
-
-        Returns
-        -------
-        current : float
-            Current setting.
-        """
-        # cmd = ":CURR?"
-        # if channel is not None:
-        #     cmd = f":SOUR{channel}" + cmd
-        # current = float(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return current
-        return 0.0
-
-    def set_current_step(self) -> None:
-        """Set the current step.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_current_step(self) -> None:
-        """Query the current step.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_source_trigger(
-        self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
-    ) -> None:
-        """Set the source trigger level.
-
-        This operation is not implemented. No instrument command is sent.
-
-        Parameters
-        ----------
-        func : {'CURR', 'VOLT'}
-            Quantity to select: current ('CURR') or voltage ('VOLT').
-        level : float
-            Requested trigger level for the selected quantity.
-        channel : int or None
-            One-based physical channel number. Omit to use the selected channel.
-        """
-        pass
-
-    def get_source_trigger(
-        self, func: Literal["CURR", "VOLT"], level: float, channel: int | None = None
-    ) -> None:
-        """Query the source trigger level.
-
-        This operation is not implemented. No instrument command is sent.
-
-        Parameters
-        ----------
-        func : {'CURR', 'VOLT'}
-            Quantity to select: current ('CURR') or voltage ('VOLT').
-        level : float
-            Requested trigger level for the selected quantity.
-        channel : int or None
-            One-based physical channel number. Omit to use the selected channel.
-        """
-        pass
-
-    def clear_ocp_circuit(self) -> None:
-        """Clear the overcurrent protection circuit.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_voltage(
-        self,
-        voltage: float | Literal["MIN", "MAX", "UP", "DOWN"],
-        channel: int | None = None,
-    ) -> None:
-        """Set the voltage of specified channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        voltage : float; 'MAX', 'MIN'; 'UP', 'DOWN'
-            Voltage level. 'UP' and 'DOWN' increment and decrement the voltage by step
-            setting.
-        channel : int, optional
-            Channel to select. If omitted, voltagely selected channel is used.
-        """
-        # cmd = f":VOLT {voltage}"
-        # if channel is not None:
-        #     cmd = f":SOUR{channel}" + cmd
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def get_voltage(self, channel: int | None = None) -> float:
-        """Get the voltage setting of a channel.
-
-        Parameters
-        ----------
-        channel : int, optional
-            Channel to select. If omitted, voltagely selected channel is used.
-
-        Returns
-        -------
-        voltage : float
-            Voltage setting.
-        """
-        # cmd = ":VOLT?"
-        # if channel is not None:
-        #     cmd = f":SOUR{channel}" + cmd
-        # voltage = float(self._instr.query(cmd))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return voltage
-        return 0.0
-
-    def set_voltage_step(self) -> None:
-        """Set the voltage step.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_voltage_step(self) -> None:
-        """Query the voltage step.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def clear_ovp_circuit(self) -> None:
-        """Clear the overvoltage protection circuit.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_voltage_range(self, range: str, channel: int | None = None) -> None:
-        """Set the voltage range of a channel.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Only applicable to single channel model.
-
-        Parameters
-        ----------
-        range : str
-            Requested output range.
-        channel : int or None
-            One-based physical channel number. Omit to use the selected channel.
-        """
-        pass
-
-    # --- STATus commands ---
-
-    # --- STORe commands ---
-
-    # --- SYSTem commands ---
-
-    def set_beeper(self) -> None:
-        """Set the beeper state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_beeper(self) -> None:
-        """Query the beeper state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_gpib_config(self) -> None:
-        """Set the GPIB configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_gpib_config(self) -> None:
-        """Query the GPIB configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_lan_config(self) -> None:
-        """Set the LAN configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_lan_config(self) -> None:
-        """Query the LAN configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_rs232_config(self) -> None:
-        """Set the RS232 configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_rs232_config(self) -> None:
-        """Query the RS232 configuration.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_contrast(self) -> None:
-        """Set the contrast.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_contrast(self) -> None:
-        """Query the contrast.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_errors(self) -> list[str]:
-        """Return an empty error queue without hardware I/O.
-
-        Returns
-        -------
-        errors : list of str
-            Empty list; the virtual driver has no instrument error queue.
-        """
-        return []
-
-    def set_key_keylock(self) -> None:
-        """Set the individual front-panel key lock.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_key_keylock(self) -> None:
-        """Query the individual front-panel key lock.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    @property
-    def keylock_enabled(self) -> bool:
-        """Query enable/disable state of front panel keys in remote mode.
-
-        Returns a fixed placeholder without hardware I/O; assignments are no-ops.
-
-        Returns
-        -------
-        enable : bool
-            Enabled/disabled state of the front panel lock
-        """
-        # cmd = ":SYST:KLOC:STAT?"
-        # enable = self._instr.query(cmd)
-        # if enable == "ON":
-        #     enable = True
-        # else:
-        #     enable = False
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return enable
-        return False
-
-    @keylock_enabled.setter
-    def keylock_enabled(self, enable: bool) -> None:
-        """Enable/disable front panel keys in remote mode.
-
-        This virtual operation is a no-op; no instrument command is sent.
-
-        Parameters
-        ----------
-        enable : bool
-            Enabled/disabled state of the front panel lock
-        """
-        # cmd = ":SYST:KLOC:STAT "
-        # if enable is True:
-        #     cmd += "ON"
-        # else:
-        #     cmd += "OFF"
-        # self._instr.write(cmd)
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_language(self) -> None:
-        """Set the language.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_language(self) -> None:
-        """Query the language.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_local(self) -> None:
-        """Return instrument to local mode.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # self._instr.write(":SYST:LOC")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_lock(self) -> None:
-        """Set the instrument lock state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_lock(self) -> None:
-        """Query the instrument lock state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_on_off_sync(self) -> None:
-        """Set the output synchronization.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_on_off_sync(self) -> None:
-        """Query the output synchronization.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_otp_enable(self) -> None:
-        """Set the overtemperature protection enable state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_otp_enable(self) -> None:
-        """Query the overtemperature protection enable state.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_power_on_config_mode(self) -> None:
-        """Set the power on config mode.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_power_on_config_mode(self) -> None:
-        """Query the power on config mode.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_remote(self) -> None:
-        """Set the instrument to remote mode.
-
-        This virtual operation is a no-op; no instrument command is sent.
-        """
-        # self._instr.write(":SYST:REM")
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-        pass
-
-    def set_brightness(self) -> None:
-        """Set the brightness.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_brightness(self) -> None:
-        """Query the brightness.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def set_screen_saver_enable(self) -> None:
-        """Set the screen saver enable.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    @property
-    def temperature_test_result(self) -> float:
-        """Query the self-test result of the temperature.
-
-        Returns a fixed placeholder without hardware I/O.
-
-        Returns
-        -------
-        temperature : float
-            Temperature in degrees Celsius.
-        """
-        # temperature = float(self._instr.query(":SYST:SELF:TEST:TEMP?"))
-
-        # if self.check_errors is True:
-        #     self.get_errors()
-
-        # return temperature
-        return 0.0
-
-    def set_track_mode(self) -> None:
-        """Set the tracking mode.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_track_mode(self) -> None:
-        """Query the tracking mode.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    def get_scpi_version(self) -> None:
-        """Query the SCPI version.
-
-        This operation is not implemented. No instrument command is sent.
-        """
-        pass
-
-    # --- TIMEr commands ---
-
-    # --- TRIGger commands ---
+    def _external(self, head: str, args: list[str], query: bool) -> str:
+        """Handle instrument paths and files in memory."""
+        if head == ":MMEM:DISK":
+            return ntpath.normpath("D:/")
+        if head == ":MMEM:CAT":
+            parent = self.values[":MMEM:CDIR"]
+            return ",".join(
+                sorted(
+                    ntpath.basename(path)
+                    for path in set(self.external) | self.directories
+                    if path != parent and ntpath.dirname(path) == parent
+                )
+            )
+        path = self._path(args[0]) if args else self.values[":MMEM:CDIR"]
+        if head == ":MMEM:CDIR":
+            if not query:
+                if path not in self.directories:
+                    self._fail("Directory does not exist")
+                self.values[head] = path
+            return self.values[head]
+        if head == ":MMEM:MDIR":
+            self.directories.add(path)
+        elif head == ":MMEM:DEL":
+            del self.external[path]
+        elif head == ":MMEM:LOAD":
+            self._restore(self.external[path])
+        elif head == ":MMEM:STOR":
+            self.external[path] = self._save(
+                ntpath.splitext(path)[1].lstrip(".").upper()
+            )
+        else:
+            self._fail("Undefined header", -113)
+        return ""
+
+    def _recorder(self, head: str, args: list[str], query: bool, number: int) -> str:
+        """Capture synchronous samples at recording start and stop."""
+        if (
+            self.values[":REC"] == "ON"
+            and not query
+            and head in (":REC:MEM", ":REC:MMEM", ":REC:PERI")
+        ):
+            self._fail("Cannot configure an active recorder")
+        if head == ":REC:MEM":
+            self.values[":REC:DEST"] = f"C:\\REC{args[0]}:{args[1]}"
+            self.recording = {"slot": int(args[0]), "name": args[1]}
+        elif head == ":REC:MMEM":
+            self.values[":REC:DEST"] = self._path(args[0])
+            self.recording = {"path": self._path(args[0])}
+        elif head == ":REC" and not query:
+            if self.recording is None:
+                self._fail("Configure a recording destination first")
+            if args[0] == "ON":
+                self.samples = [self._sample(number)]
+            else:
+                self.samples.append(self._sample(number))
+                snapshot = {
+                    "type": "ROF",
+                    "name": self.recording.get("name", "RIGOL.ROF"),
+                    "samples": list(self.samples),
+                    "period": int(self.values[":REC:PERI"]),
+                }
+                if "slot" in self.recording:
+                    key = ("ROF", self.recording["slot"])
+                    if self.files.get(key, {}).get("locked", False):
+                        self._fail("File is locked")
+                    self.files[key] = snapshot
+                else:
+                    self.external[self.recording["path"]] = snapshot
+            self.values[head] = args[0]
+        elif head in self.values:
+            if not query:
+                self.values[head] = args[0]
+            return self.values[head]
+        else:
+            self._fail("Undefined recorder header", -113)
+        return ""
+
+    def _analyzer(self, head: str, args: list[str], query: bool) -> str:
+        """Read recordings and compute statistics for the selected interval."""
+        if head in (":ANAL:MEM", ":ANAL:MMEM"):
+            self.opened = (
+                self.files[("ROF", int(args[0]))]
+                if head.endswith(":MEM")
+                else self.external[self._path(args[0])]
+            )
+            if self.opened["type"] != "ROF":
+                self._fail("Expected a recording")
+            record_name = self.opened.get("name", "RIGOL.ROF")
+            self.values[":ANAL:FILE"] = (
+                f"C:\\REC{args[0]}:{record_name}"
+                if head.endswith(":MEM")
+                else self._path(args[0])
+            )
+            self.values[":ANAL:STARTT"] = str(self.opened["period"])
+            self.values[":ANAL:ENDT"] = str(
+                len(self.opened["samples"]) * self.opened["period"]
+            )
+            return ""
+        if head == ":ANAL:FILE":
+            return self.values[head]
+        if self.opened is None:
+            self._fail("No recording is open")
+        if head == ":ANAL:VAL":
+            index = int(args[0]) // self.opened["period"] - 1
+            if not 0 <= index < len(self.opened["samples"]):
+                self._fail("Recording time is out of range")
+            sample = self.opened["samples"][index]
+            return f"Volt:{sample[0]}V,Curr:{sample[1]}A,Power:{sample[2]}W"
+        if head == ":ANAL:ANAL":
+            column = {"V": 0, "C": 1, "P": 2}[self.values[":ANAL:OBJ"]]
+            first = int(self.values[":ANAL:STARTT"]) // self.opened["period"] - 1
+            last = int(self.values[":ANAL:ENDT"]) // self.opened["period"]
+            samples = [row[column] for row in self.opened["samples"][first:last]]
+            average = statistics.mean(samples)
+            result = {
+                "Group": len(samples),
+                "Median": statistics.median(samples),
+                "Mode": statistics.mode(samples),
+                "Average": average,
+                "Variance": statistics.pvariance(samples),
+                "Range": max(samples) - min(samples),
+                "Min": min(samples),
+                "Max": max(samples),
+                "Mean": statistics.mean(abs(value - average) for value in samples),
+            }
+            self.analysis = ",".join(f"{key}:{value}" for key, value in result.items())
+            return ""
+        if head == ":ANAL:RES":
+            if not self.analysis:
+                self._fail("Run analysis first")
+            return self.analysis
+        if head in self.values:
+            period = self.opened["period"]
+            end = len(self.opened["samples"]) * period
+            if args and args[0] in ("MIN", "MAX"):
+                bound = period if args[0] == "MIN" else end
+                if query:
+                    return str(bound)
+                args[0] = str(bound)
+            if not query:
+                self.values[head] = args[0]
+            return self.values[head]
+        self._fail("Undefined analyzer header", -113)
+        return ""
+
+    def _digital(self, head: str, args: list[str], query: bool) -> str:
+        """Retain per-line digital input/output settings."""
+        limit = args.pop() if query and args and args[-1] in ("MIN", "MAX") else None
+        args = [arg for arg in args if arg]
+        line = int(args.pop(0)[1:]) if args and args[0].startswith("D") else 0
+        if not 0 <= line <= 3:
+            self._fail("Invalid digital line")
+        key = (head, line)
+        suffix = head.rsplit(":", 1)[-1]
+        defaults = {
+            "IN": "OFF",
+            "OUT": "OFF",
+            "RESP": "OFF",
+            "SENS": "LOW",
+            "TYPE": "RISE",
+            "SOUR": "CH1",
+            "DUTY": "50",
+            "PERI": "0.1",
+            "POLA": "POSITIVE",
+            "SIGN": "LEVEL",
+            "COND": "OUTOFF",
+        }
+        if not query:
+            self.digital[key] = ",".join(args)
+        response = self.digital.get(key, defaults[suffix])
+        if limit is not None and suffix == "COND":
+            condition = response.split(",")[0]
+            quantity = {"V": ":VOLT", "C": ":CURR", "P": ":MONI:POWER"}.get(
+                condition[-1], ":VOLT"
+            )
+            response = (
+                condition
+                + ","
+                + str(self._bound(quantity, self.selected, limit == "MAX"))
+            )
+        return f"D{line},{response}" if query and suffix in ("IN", "OUT") else response
+
+    def _update_status(self, number: int) -> None:
+        """Latch rising condition bits without consuming other registers."""
+        state = self.channels[number]
+        condition = (4 if state[":OUTP:OVP:ALAR"] == "YES" else 0) | (
+            8 if state[":OUTP:OCP:ALAR"] == "YES" else 0
+        )
+        if state[":OUTP"] == "ON":
+            cc = self.resistance is not None and abs(
+                float(state[":VOLT"])
+            ) / self.resistance > float(state[":CURR"])
+            condition |= 1 if cc else 2
+        self.channel_events[number] |= condition & ~self.conditions[number]
+        self.conditions[number] = condition
+        instrument = sum(
+            1 << channel
+            for channel, value in self.channel_events.items()
+            if value & int(self.channels[channel][":STAT:ENAB"])
+        )
+        self.instrument_event |= instrument & ~self.instrument_condition
+        self.instrument_condition = instrument
+        if len(self.channels) == 1:
+            root_condition = (
+                (condition & 3)
+                | (512 if condition & 4 else 0)
+                | (1024 if condition & 8 else 0)
+            )
+        else:
+            root_condition = (
+                8192 if instrument & int(self.values[":STAT:QUES:INST:ENAB"]) else 0
+            )
+        self.questionable_event |= root_condition & ~self.root_condition
+        self.root_condition = root_condition
+
+    def _status(self, head: str, args: list[str], query: bool) -> str:
+        """Read conditions or consume one independent event register."""
+        for number in self.channels:
+            self._update_status(number)
+        if ":ISUM" in head:
+            number = int(head.partition(":ISUM")[2].partition(":")[0])
+            state = self._channel(number)
+            if head.endswith(":ENAB"):
+                if not query:
+                    state[":STAT:ENAB"] = args[0]
+                return state[":STAT:ENAB"]
+            if head.endswith(":COND"):
+                return str(self.conditions[number])
+            result, self.channel_events[number] = self.channel_events[number], 0
+            return str(result)
+        if head.endswith(":ENAB"):
+            if not query:
+                self.values[head] = args[0]
+            return self.values[head]
+        if head == ":STAT:QUES:INST":
+            result, self.instrument_event = self.instrument_event, 0
+            return str(result)
+        if head.endswith(":COND"):
+            if len(self.channels) == 1:
+                condition = self.conditions[1]
+                return str(
+                    (condition & 3)
+                    | (512 if condition & 4 else 0)
+                    | (1024 if condition & 8 else 0)
+                )
+            active = sum(
+                1 << channel
+                for channel, value in self.channel_events.items()
+                if value & int(self.channels[channel][":STAT:ENAB"])
+            )
+            return "8192" if active & int(self.values[":STAT:QUES:INST:ENAB"]) else "0"
+        result, self.questionable_event = self.questionable_event, 0
+        return str(result)
+
+    def _construct_template(self, number: int) -> None:
+        """Generate deterministic approximate timer waveform entries."""
+        state = self.channels[number]
+        count = int(state[":TIME:TEMP:POINT"])
+        low, high = float(state[":TIME:TEMP:MINV"]), float(state[":TIME:TEMP:MAXV"])
+        waveform = state[":TIME:TEMP:SEL"]
+        object_, fixed = state[":TIME:TEMP:OBJ"].split(",")
+        period = int(state[":TIME:TEMP:PERI"])
+        for index in range(count):
+            phase = (index % period) / period
+            if waveform == "SINE":
+                fraction = (1 - math.cos(phase * 2 * math.pi)) / 2
+            elif waveform == "SQUARE":
+                fraction = float(phase < float(state[":TIME:TEMP:WIDT"]) / period)
+            elif waveform in ("DN", "FALL"):
+                fraction = 1 - index / max(1, count - 1)
+            elif waveform == "UPDN":
+                fraction = 1 - abs(2 * index / max(1, count - 1) - 1)
+            elif waveform == "RAMP":
+                symmetry = float(state[":TIME:TEMP:SYMM"]) / 100
+                fraction = (
+                    phase / symmetry
+                    if phase < symmetry
+                    else (1 - phase) / (1 - symmetry)
+                )
+            else:
+                fraction = index / max(1, count - 1)
+            if state[":TIME:TEMP:INVE"] == "ON":
+                fraction = 1 - fraction
+            varying = low + (high - low) * fraction
+            voltage, current = (
+                (varying, float(fixed)) if object_ == "V" else (float(fixed), varying)
+            )
+            self.timer_entries[number][index] = (
+                voltage,
+                current,
+                float(state[":TIME:TEMP:INTE"]),
+            )
+        state[":TIME:GROUP"] = str(count)
+
+
+__all__ = ["DP800"]

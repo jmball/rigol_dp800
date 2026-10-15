@@ -100,7 +100,7 @@ def test_hardware_disabled_without_resource():
         ("--hardware-current", float("nan")),
         ("--visa-timeout", 0),
         ("--hardware-save-slot", 0),
-        ("--hardware-save-slot", 10),
+        ("--hardware-save-slot", 11),
         ("--hardware-license", "invalid"),
         ("--hardware-license", "é" * 28),
         ("--visa-options", "invalid"),

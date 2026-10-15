@@ -2,76 +2,6 @@
 
 """Explicit API coverage inventory; hardware applicability is documented separately."""
 
-import inspect
-
-
-def placeholder_kwargs(method):
-    """Supply the required arguments of an unfinished method without I/O."""
-    values = {"enable": True, "func": "VOLT", "level": 1.0, "range": "LOW"}
-    return {
-        name: values[name]
-        for name, param in inspect.signature(method).parameters.items()
-        if param.default is inspect.Parameter.empty
-    }
-
-
-PLACEHOLDERS = (
-    "set_delay_parameters",
-    "get_delay_parameters",
-    "set_delay_state",
-    "get_delay_state",
-    "set_delay_state_pattern",
-    "get_delay_state_pattern",
-    "set_delay_stop_condition",
-    "get_delay_stop_condition",
-    "set_delay_time_method",
-    "get_delay_time_method",
-    "set_output_range",
-    "set_output_timer",
-    "get_output_timer",
-    "set_output_timer_enable",
-    "get_output_timer_enable",
-    "set_output_track",
-    "get_output_track",
-    "set_current_step",
-    "get_current_step",
-    "set_source_trigger",
-    "get_source_trigger",
-    "clear_ocp_circuit",
-    "set_voltage_step",
-    "get_voltage_step",
-    "clear_ovp_circuit",
-    "set_voltage_range",
-    "set_beeper",
-    "get_beeper",
-    "set_gpib_config",
-    "get_gpib_config",
-    "set_lan_config",
-    "get_lan_config",
-    "set_rs232_config",
-    "get_rs232_config",
-    "set_contrast",
-    "get_contrast",
-    "set_key_keylock",
-    "get_key_keylock",
-    "set_language",
-    "get_language",
-    "set_lock",
-    "get_lock",
-    "set_on_off_sync",
-    "get_on_off_sync",
-    "set_otp_enable",
-    "get_otp_enable",
-    "set_power_on_config_mode",
-    "get_power_on_config_mode",
-    "set_brightness",
-    "get_brightness",
-    "set_screen_saver_enable",
-    "set_track_mode",
-    "get_track_mode",
-    "get_scpi_version",
-)
-
 # Methods/properties exercised by lifecycle or dedicated unit/hardware scenarios.
 SPECIAL_API = {
     "connect",
@@ -175,6 +105,16 @@ ACTIONS = {
 }
 
 CHANNEL_MEMBERS = {
+    "voltage_step",
+    "current_step",
+    "tracking_enabled",
+    "triggered_voltage",
+    "triggered_current",
+    "clear_ocp_circuit",
+    "clear_ovp_circuit",
+    "questionable_condition",
+    "questionable_enable_register",
+    "get_questionable_event",
     "channel",
     "voltage",
     "current",

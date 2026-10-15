@@ -46,6 +46,7 @@ class TestConnection:
         assert self.driver._instr is None
         assert self.resource.closed == 1
         assert self.resource.commands == [
+            "*IDN?",
             ":OUTP  CH1,OFF",
             ":OUTP  CH2,OFF",
             ":OUTP  CH3,OFF",
@@ -154,6 +155,7 @@ class TestConnection:
         self.driver.disconnect()
         self.driver.disconnect()
         assert self.resource.commands == [
+            "*IDN?",
             ":OUTP  CH1,OFF",
             ":OUTP  CH2,OFF",
             ":OUTP  CH3,OFF",
@@ -320,3 +322,80 @@ class TestConnection:
         assert self.driver._instr is self.resource
         self.resource.responses[":MEAS?"] = "1.2"
         assert self.driver.measure() == "1.2"
+
+
+@pytest.mark.parametrize(
+    "model,count",
+    [
+        ("DP811A", 1),
+        ("DP813", 1),
+        ("DP821", 2),
+        ("DP822A", 2),
+        ("DP832A", 3),
+        ("UNKNOWN", 3),
+    ],
+)
+def test_shutdown_addresses_physical_channels(fake_visa, model, count):
+    driver, resource, manager = fake_visa
+    resource.responses["*IDN?"] = f"RIGOL,{model},serial,version"
+    driver.connect("fake", resource_manager=manager)
+    assert resource.commands == []
+    driver.disconnect()
+    assert resource.commands == [
+        "*IDN?",
+        *[f":OUTP  CH{channel},OFF" for channel in range(1, count + 1)],
+        ":SYST:LOC",
+    ]
+    assert resource.closed == 1 and driver._instr is None
+    assert not hasattr(driver, "_channel_count")
+    manager.close.assert_not_called()
+
+
+def test_shutdown_discovery_failure_still_attempts_all_outputs(fake_visa):
+    driver, resource, manager = fake_visa
+    driver.connect("fake", resource_manager=manager)
+    original_query = resource.query
+
+    def query(command, delay=None):
+        if command == "*IDN?":
+            raise OSError("Identity read failed")
+        return original_query(command, delay)
+
+    resource.query = query
+    driver.disconnect()
+    assert resource.commands == [
+        ":OUTP  CH1,OFF",
+        ":OUTP  CH2,OFF",
+        ":OUTP  CH3,OFF",
+        ":SYST:LOC",
+    ]
+    assert resource.closed == 1 and driver._instr is None
+
+
+@pytest.mark.parametrize(
+    "resource_name,termination",
+    [
+        ("ASRL1::INSTR", "\r\n"),
+        ("TCPIP::example::INSTR", "\n"),
+        ("USB0::example::INSTR", "\n"),
+    ],
+)
+def test_transport_specific_framing(fake_visa, resource_name, termination):
+    driver, resource, manager = fake_visa
+    driver.connect(resource_name, resource_manager=manager)
+    assert resource.encoding == "ascii"
+    assert resource.read_termination == resource.write_termination == termination
+    driver.disconnect()
+
+
+def test_serial_conflicts_warn_and_use_crlf(fake_visa):
+    driver, resource, manager = fake_visa
+    with pytest.warns(UserWarning, match="driver owns") as warnings:
+        driver.connect(
+            "ASRL1::INSTR",
+            resource_manager=manager,
+            write_termination="\n",
+            read_termination="\n",
+        )
+    assert len(warnings) == 2
+    assert resource.read_termination == resource.write_termination == "\r\n"

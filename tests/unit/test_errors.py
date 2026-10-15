@@ -127,7 +127,9 @@ class TestError:
         assert self.driver.get_errors() == []
         self.resource.queued_errors = [' +0, "No error" \n']
         assert self.driver.get_errors() == []
-        assert VirtualDP800().get_errors() == []
+        virtual = VirtualDP800()
+        virtual.connect("virtual")
+        assert virtual.get_errors() == []
         self.driver.disconnect()
         with pytest.raises(RuntimeError, match="not connected"):
             self.driver.get_errors()

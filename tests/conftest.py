@@ -54,11 +54,27 @@ def pytest_addoption(parser):
     group.addoption(
         "--hardware-save-slot",
         type=int,
-        help="Allow overwriting and recalling this saved setup slot (1-9)",
+        help="Allow overwriting and recalling this saved setup slot (1-10)",
     )
     group.addoption(
         "--hardware-license",
         help="Install this instrument-specific option license; persistent change",
+    )
+
+    group.addoption(
+        "--hardware-guide",
+        action="store_true",
+        help="Exercise extended guide settings; optional features must be installed",
+    )
+    group.addoption(
+        "--hardware-preset",
+        type=int,
+        choices=range(1, 5),
+        help="User preset available for edit/commit/apply testing (1-4)",
+    )
+    group.addoption(
+        "--hardware-directory",
+        help="Existing external scratch directory; test files may be overwritten",
     )
 
 

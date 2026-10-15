@@ -52,11 +52,20 @@ read/write settings. Creating and accessing these views performs no I/O or model
 The instrument determines whether a channel or operation is supported. Channel
 objects survive reconnects and address the parent's current connection; using
 them while disconnected raises `RuntimeError`. Exiting the context manager
-disconnects and attempts to disable all three outputs.
+disconnects and disables the model's physical outputs. Shutdown reads identity
+to choose those outputs, without retaining a channel count.
 
-The virtual driver exposes three channels using the same class, with its
-existing fixed placeholder values and no-op setters. Its `measure()` continues
-to return `0.0`, including for `"ALL"`.
+Both drivers now expose the complete command families from the programming guide:
+analyzer, delay/timer, display, storage, monitor, presets, recording, status,
+communications and digital triggering. Scalar settings use properties; operations
+with channel, line, preset or entry arguments remain methods. See the
+[interface reference](docs/driver-interface.md) for names, return types, command
+equivalents and changes from the unfinished API.
+
+The virtual driver is stateful and shares the hardware driver's public API and
+return types. Settings, presets and in-memory files round-trip. Optional
+`load_resistance` gives ideal CV/CC measurements; timers and digital I/O retain
+configuration without background execution. No hardware or host files are used.
 
 ## Instrument errors
 
@@ -81,7 +90,7 @@ synchronization: a late original response can interfere with diagnostics, and
 the caller may need to reconnect before continuing.
 
 `get_errors()` returns the raw error responses as a list, or an empty list when
-there are none. The virtual driver returns an empty list without diagnostic I/O.
+there are none. The virtual driver exposes its own consuming in-memory error queue.
 Reading errors consumes them; there is no separate clearing operation.
 Each response is retained whole, including any batched error messages. The
 instrument guide documents code/message responses without specifying whether
@@ -107,8 +116,7 @@ Install the test dependencies and run pytest:
 response parsing, properties, channels, error handling and the virtual driver.
 Shared fake VISA resources live in `tests/fakes.py`. Parameterized interface
 cases replace duplicate command tests; an explicit API inventory detects public
-members without test cases. Unfinished methods are checked for their existing
-warning/no-op behavior.
+members without test cases. Extended command cases live in `tests/extended_api.py`.
 
 `tests/hardware/` exercises the implemented interface through real SCPI round
 trips. Hardware tests are skipped unless a resource and expected model are
@@ -142,14 +150,19 @@ They check communication and response types, not calibrated electrical accuracy.
 | `--hardware-allow-output` | Permit brief output activation at the configured voltage/current. |
 | `--hardware-trigger` | Exercise bus triggering; requires the trigger option and `--hardware-allow-output`. |
 | `--hardware-reset` | Exercise reset; discards the previous instrument configuration. |
-| `--hardware-save-slot` | Overwrite and recall a setup slot in 1–9; its previous contents are lost. |
+| `--hardware-save-slot` | Overwrite a scratch slot in 1–10; its previous contents are lost. Extended cases also use this slot for timer/delay/recording files. |
 | `--hardware-license` | Install a valid instrument-specific 28-character option license, a persistent change. |
 
 Model/channel restrictions follow the [Rigol programming guide](https://www.batronix.com/pdf/Rigol/ProgrammingGuide/DP800_ProgrammingGuide_EN.pdf).
 Multi-channel selection/coupling and remote sensing tests skip unsupported models
 or channels. Operations needing additional flags also report explicit skips.
-Methods that currently only warn `Not implemented.` have unit coverage rather
-than hardware cases.
+`--hardware-guide` enables additional guide-family round trips and requires the
+relevant instrument options. It does not modify communication addresses or lock
+the instrument. File/recording cases additionally require `--hardware-save-slot`;
+external file tests require an existing scratch `--hardware-directory`; preset
+edit/commit/apply tests require `--hardware-preset 1` (through 4). Scratch files
+may be overwritten/deleted. These hardware cases have not yet been run on a real
+supply. See the interface reference for the virtual model's limits.
 
 The hardware suite includes invalid-channel write and query checks. The query
 case verifies that firmware times out and the error-queue fallback raises
@@ -157,11 +170,10 @@ case verifies that firmware times out and the error-queue fallback raises
 test gets its own connection to isolate potential response synchronization issues.
 
 Dedicated lifecycle tests exercise `disconnect()` and context-manager exits.
-The driver currently attempts CH1–CH3 shutdown on every model, so these tests may
-fail on one- or two-channel supplies if absent channels report errors. General
-fixture cleanup addresses only actual physical channels, closes the resource,
-and closes its caller-owned manager, keeping this issue separate from other
-interface checks. Cleanup failures are reported as test errors.
+Shutdown reads the model to disable only its physical channels; if identification
+fails or the model is unknown, it attempts all three before closing. General
+fixture cleanup uses the model already verified by the harness and closes its
+caller-owned manager. Cleanup failures are reported as test errors.
 
 In the development VM, networked hardware may need a host-side exception. From
 the host's `dev-vm` repository, run `./manage-network-access.sh add <IPv4-address>`.

@@ -67,8 +67,8 @@ def hardware(bench_config, visa_manager):
                     operation()
                 except Exception as error:
                     failures.append(error)
-        # Harness cleanup addresses actual channels. Production disconnect() also
-        # writes to absent CH2/CH3 on smaller models; its own tests cover that.
+        # Harness cleanup uses the already verified bench model, avoiding another
+        # identity query during failure teardown. Lifecycle has separate tests.
         try:
             if supply._instr is not None:
                 supply._instr.close()

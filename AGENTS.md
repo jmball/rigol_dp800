@@ -9,8 +9,9 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   family. Connected commands go through the driver's `_write()` and `_query()`
   wrappers, which check connection state and delegate to PyVISA. Initialization
   and resource closing use the local resource directly.
-- `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. Most setters
-  are no-ops and getters return fixed placeholders; it is not a stateful simulator.
+- `src/virtual_dp800/virtual_dp800.py`: hardware-free counterpart. It inherits the hardware API and uses a deterministic in-memory transport.
+  Measurements support an optional resistive load; no background timing or
+  external I/O is simulated.
 - `src/dp800/channel.py`: DP800Channel views shared by both drivers. Channel
   objects delegate setpoint/output commands and measurements with an explicit
   channel number. They share the parent connection and expose no lifecycle API.
@@ -30,9 +31,9 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
   Python compatibility requirements out of the README.
 
 `tests/unit/` contains pytest regressions for driver behavior, channel views,
-error-queue diagnostics, virtual placeholders, and the hardware test harness.
-`tests/fakes.py` provides shared VISA doubles; `tests/api.py` lists public API
-contracts. `tests/hardware/` contains opt-in real instrument tests, configured
+error-queue diagnostics, virtual state transitions, and the hardware test harness.
+`tests/fakes.py` provides shared VISA doubles; `tests/api.py` and
+`tests/extended_api.py` list public API contracts. `tests/hardware/` contains opt-in real instrument tests, configured
 through pytest CLI options in `tests/conftest.py`. There is
 no CI configuration or configured formatter, linter, or type checker.
 
@@ -51,10 +52,11 @@ no CI configuration or configured formatter, linter, or type checker.
   implementations as well as docstrings: some disagree, such as `measure()`
   returning strings in the hardware driver.
 - When changing a public API, inspect the corresponding virtual method and update
-  it where appropriate. Do not assume complete parity: placeholder return types
-  can differ from the hardware driver.
-- Many hardware methods only warn `Not implemented.`. Treat these as unfinished
-  functionality, and keep unrelated fixes out of the task.
+  its behavior where appropriate. The virtual driver inherits the hardware API;
+  preserve matching signatures and response types.
+- All documented command families now have implementations. Do not reintroduce
+  warning-only stubs or duplicate equivalent SCPI commands. See
+  `docs/driver-interface.md` for command consolidation and API migration details.
 - For SCPI changes, verify command spelling, separators, query suffixes, response
   parsing, and model restrictions against the Rigol programming guide. The driver
   module docstring links to the instrument documentation.
@@ -94,38 +96,39 @@ Hardware tests skip by default; see README for the required --visa-resource and
 is available or enable outputs without the explicit hardware CLI option. Tests
 must run serially against each instrument. The fixture shuts down physical
 channels even when only a subset is selected; persistent changes require flags.
-Keep unfinished methods covered as unit placeholders rather than claiming they
-have hardware functionality. Preserve the public API coverage inventory when
+New guide-family hardware cases require --hardware-guide; persistent file and
+preset changes require the additional scratch slot/directory/preset arguments. Preserve the public API coverage inventory when
 adding methods/properties.
 
 The IEEE488.2 identity, options, enable registers, status byte, and power-on
 clear setting are properties. Hardware property access performs fresh VISA I/O.
 The event-register read and OPC synchronization remain explicit methods. The
-virtual properties preserve their fixed placeholder values and return types.
+virtual driver shares the hardware API and response types.
 Delay end state and group count, trigger coupling, selected channel, and front
 panel keylock are also read/write properties. Self-test results and temperature
 test results are read-only properties. Assigning selected_channel changes the
-channel used by subsequent commands that omit a channel argument. Delay cycles,
-channel-specific settings, and unfinished placeholders remain methods.
+channel used by subsequent commands that omit a channel argument. Delay cycles and
+channel-specific settings remain methods when arguments are required.
 The read-only channels mapping contains read/write DP800Channel views for numbers
 1 - 3. Constructor checks only integer type and these bounds; there is no model
-discovery, channel_count, or per-operation availability validation. The instrument
+discovery when creating views, cached channel_count, or per-operation availability
+validation. The instrument
 enforces actual channel availability. Views survive reconnects and use the
 parent's current connection. Accessing channels or channel performs no I/O.
 Channel measured_* properties return floats; measure() preserves parent response
-types, including the virtual driver's 0.0 placeholder for ALL.
+types, including ALL response strings in both drivers.
 Channel views also delegate output mode, remote sensing, OCP/OVP enable states,
 thresholds, alarms, and alarm-label clearing. Preserve model/channel restrictions
 documented by the parent driver, while leaving enforcement to the instrument.
 
 ## Hardware behavior
 
-`connect()` opens a message-based VISA resource, configures ASCII/LF framing,
-sets self._instr, and clears stale error entries. Initialization failures clear
+`connect()` opens a message-based VISA resource, configures ASCII framing
+(CRLF for ASRL serial names, LF otherwise), sets self._instr, and clears stale error entries. Initialization failures clear
 the attribute and close the resource. Remote mode is
-an explicit caller operation through set_remote(). Identity queries
-and connection logging are caller responsibilities; read identity explicitly
-when identification is needed.
+an explicit caller operation through set_remote(). Identity validation
+and connection logging are caller responsibilities; connect does not query
+identity. Shutdown reads identity only to select physical output numbers.
 Framing values are module-level constants shared with the virtual driver, and
 conflicting caller settings warn and are ignored in favor of those constants.
 Reset is an explicit caller operation.
@@ -139,7 +142,7 @@ failed diagnostics preserve it. No automatic retry or stream recovery occurs.
 get_errors() uses _query(check_errors=False) to disable both automatic checks
 and timeout diagnostics, and reads until the zero-code response. It returns raw
 nonzero responses whole, including any batched messages; the virtual equivalent
-returns an empty list. Successful normal queries still monitor the queue, since
+consumes its own in-memory error queue. Successful normal queries still monitor the queue, since
 a valid reply does not guarantee no pending device errors. Mock both normal and
 error-query responses, including error-query timeout recursion prevention.
 Connecting twice raises until disconnect.
@@ -150,8 +153,10 @@ PyVISA resources retain their
 managers for the connection's lifetime; the driver keeps no separate manager
 attribute and never explicitly closes managers. Injected managers stay
 caller-owned, and default managers are obtained lazily from PyVISA.
-`disconnect()` attempts to disable outputs on channels 1, 2, and 3 and return to
-local mode, then closes the resource and clears `self._instr` even on failure.
+`disconnect()` reads identity at shutdown and disables physical channels for
+known models. It falls back to all three if discovery fails or the model is
+unknown; no count is cached. It then returns to local mode, closes the resource
+and clears `self._instr` even on failure.
 Repeated disconnect calls are harmless. When used as a context manager,
 __enter__ returns the instance
 without connecting, and __exit__ calls disconnect without suppressing block

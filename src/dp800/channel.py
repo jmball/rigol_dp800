@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .dp800 import DP800
-    from virtual_dp800.virtual_dp800 import DP800 as VirtualDP800
 
 
 class DP800Channel:
@@ -29,7 +28,7 @@ class DP800Channel:
         One-based physical channel number.
     """
 
-    def __init__(self, supply: DP800 | VirtualDP800, channel: int) -> None:
+    def __init__(self, supply: DP800, channel: int) -> None:
         """Bind a physical channel to an existing supply.
 
         Parameters
@@ -69,7 +68,7 @@ class DP800Channel:
         return self._supply.get_voltage(channel=self._channel)
 
     @voltage.setter
-    def voltage(self, value: float) -> None:
+    def voltage(self, value: float | Literal["MIN", "MAX", "UP", "DOWN"]) -> None:
         """Set the configured channel voltage in volts.
 
         Each assignment uses the parent connection and explicitly addresses this
@@ -94,7 +93,7 @@ class DP800Channel:
         return self._supply.get_current(channel=self._channel)
 
     @current.setter
-    def current(self, value: float) -> None:
+    def current(self, value: float | Literal["MIN", "MAX", "UP", "DOWN"]) -> None:
         """Set the configured channel current in amps.
 
         Each assignment uses the parent connection and explicitly addresses this
@@ -319,7 +318,7 @@ class DP800Channel:
 
     def measure(
         self, func: Literal["ALL", "CURR", "POWE", "VOLT"] | None = None
-    ) -> str | list[str] | float:
+    ) -> str | list[str]:
         """Measure this channel, preserving the parent driver's response types.
 
         Parameters
@@ -330,11 +329,172 @@ class DP800Channel:
 
         Returns
         -------
-        values : str or list of str or float
-            Unconverted response from the parent. Hardware returns strings;
-            the virtual driver's existing placeholder returns 0.0.
+        values : str or list of str
+            Unconverted response strings from the parent driver. ALL returns
+            voltage, current and power strings in that order.
         """
         return self._supply.measure(func, channel=self._channel)
+
+    @property
+    def voltage_step(self) -> float:
+        """Voltage increment in volts.
+
+        Returns
+        -------
+        value : float
+            Voltage increment in volts.
+        """
+        return self._supply.get_voltage_step(channel=self._channel)
+
+    @voltage_step.setter
+    def voltage_step(self, value: float) -> None:
+        """Set voltage increment in volts.
+
+        Parameters
+        ----------
+        value : float
+            Voltage increment in volts.
+        """
+        self._supply.set_voltage_step(value, channel=self._channel)
+
+    @property
+    def current_step(self) -> float:
+        """Current increment in amps.
+
+        Returns
+        -------
+        value : float
+            Current increment in amps.
+        """
+        return self._supply.get_current_step(channel=self._channel)
+
+    @current_step.setter
+    def current_step(self, value: float) -> None:
+        """Set current increment in amps.
+
+        Parameters
+        ----------
+        value : float
+            Current increment in amps.
+        """
+        self._supply.set_current_step(value, channel=self._channel)
+
+    @property
+    def tracking_enabled(self) -> bool:
+        """Tracking state on supported channels.
+
+        Returns
+        -------
+        value : bool
+            Tracking state on supported channels.
+        """
+        return self._supply.get_output_track(channel=self._channel)
+
+    @tracking_enabled.setter
+    def tracking_enabled(self, value: bool) -> None:
+        """Set tracking state on supported channels.
+
+        Parameters
+        ----------
+        value : bool
+            Tracking state on supported channels.
+        """
+        self._supply.set_output_track(value, channel=self._channel)
+
+    @property
+    def questionable_enable_register(self) -> int:
+        """Channel questionable-status enable mask.
+
+        Returns
+        -------
+        value : int
+            Channel questionable-status enable mask.
+        """
+        return self._supply.get_channel_questionable_enable(channel=self._channel)
+
+    @questionable_enable_register.setter
+    def questionable_enable_register(self, value: int) -> None:
+        """Set channel questionable-status enable mask.
+
+        Parameters
+        ----------
+        value : int
+            Channel questionable-status enable mask.
+        """
+        self._supply.set_channel_questionable_enable(value, channel=self._channel)
+
+    @property
+    def triggered_voltage(self) -> float:
+        """Read the triggered voltage level.
+
+        Returns
+        -------
+        value : float
+            Configured triggered level in volts or amps.
+        """
+        return self._supply.get_source_trigger("VOLT", channel=self._channel)
+
+    @triggered_voltage.setter
+    def triggered_voltage(self, value: float | Literal["MIN", "MAX"]) -> None:
+        """Set the triggered voltage level.
+
+        Parameters
+        ----------
+        value : float or {"MIN", "MAX"}
+            Triggered level in volts or amps, or a supported bound.
+        """
+        self._supply.set_source_trigger("VOLT", value, channel=self._channel)
+
+    @property
+    def triggered_current(self) -> float:
+        """Read the triggered current level.
+
+        Returns
+        -------
+        value : float
+            Configured triggered level in volts or amps.
+        """
+        return self._supply.get_source_trigger("CURR", channel=self._channel)
+
+    @triggered_current.setter
+    def triggered_current(self, value: float | Literal["MIN", "MAX"]) -> None:
+        """Set the triggered current level.
+
+        Parameters
+        ----------
+        value : float or {"MIN", "MAX"}
+            Triggered level in volts or amps, or a supported bound.
+        """
+        self._supply.set_source_trigger("CURR", value, channel=self._channel)
+
+    def clear_ocp_circuit(self) -> None:
+        """Clear the protection circuit and label, then re-enable this output."""
+        self._supply.clear_ocp_circuit(channel=self._channel)
+
+    def clear_ovp_circuit(self) -> None:
+        """Clear the protection circuit and label, then re-enable this output."""
+        self._supply.clear_ovp_circuit(channel=self._channel)
+
+    def get_questionable_event(self) -> int:
+        """Read and consume the channel questionable event register.
+
+        Returns
+        -------
+        value : int
+            Consumed event register.
+        """
+        return self._supply.get_channel_questionable_event(channel=self._channel)
+
+    @property
+    def questionable_condition(self) -> int:
+        """Read the channel questionable condition register.
+
+        Returns
+        -------
+        value : int
+            Current condition bitmask.
+        """
+        return self._supply.get_channel_questionable_condition(self._channel)
 
     def _measure_scalar(self, func: Literal["CURR", "POWE", "VOLT"]) -> float:
         """Measure one quantity and convert its response to a float.
