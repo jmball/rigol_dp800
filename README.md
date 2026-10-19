@@ -16,6 +16,22 @@ On Windows, use `.venv\Scripts\python.exe` for the environment's interpreter.
 PyVISA and the pure Python `pyvisa-py` backend are installed as dependencies;
 hardware access may require additional drivers or backend configuration.
 
+## Examples
+
+Run these scripts from the repository root after installation:
+
+```sh
+.venv/bin/python examples/virtual.py
+.venv/bin/python examples/hardware.py 'TCPIP0::192.0.2.1::INSTR'
+```
+
+The [virtual example](examples/virtual.py) demonstrates voltage regulation and
+current limiting with a simulated resistive load. The
+[hardware example](examples/hardware.py) reads identity, setpoints and measurements.
+Use `--enable-output --voltage 5 --current 0.1` to configure and briefly enable
+the selected channel. Run it with `--help` for channel and VISA options.
+Both scripts disconnect on exit; on hardware this disables all physical outputs.
+
 ## Channels
 
 ```python
