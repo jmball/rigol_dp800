@@ -55,12 +55,12 @@ them while disconnected raises `RuntimeError`. Exiting the context manager
 disconnects and disables the model's physical outputs. Shutdown reads identity
 to choose those outputs, without retaining a channel count.
 
-Both drivers now expose the complete command families from the programming guide:
-analyzer, delay/timer, display, storage, monitor, presets, recording, status,
+Both drivers implement the complete command families described in the programming
+guide: analyzer, delay/timer, display, storage, monitor, presets, recording, status,
 communications and digital triggering. Scalar settings use properties; operations
 with channel, line, preset or entry arguments remain methods. See the
-[interface reference](docs/driver-interface.md) for names, return types, command
-equivalents and changes from the unfinished API.
+[interface reference](docs/driver-interface.md) for names, return types, and
+command equivalents.
 
 The virtual driver is stateful and shares the hardware driver's public API and
 return types. Settings, presets and in-memory files round-trip. Optional

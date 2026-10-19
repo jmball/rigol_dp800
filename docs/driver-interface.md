@@ -82,10 +82,11 @@ Scalar properties with bound-query support use `get_limit(property_name, limit)`
 
 `save_file(file_type, location)` and `recall_file(file_type, location)` accept RSF
 (state), RTF (timer) or RDF (delay). A location is either an internal integer slot
-or an external path with the matching suffix. `save_setup()` and `recall_setup()`
-retain their existing state-only slot API. `save_named_setup()` additionally
-specifies the internal state filename. Internal deletion, locking and validity
-queries also support ROF recording files. External file/directory operations
+or an external path with the matching suffix. `save_setup(number)` stores the
+current instrument state in an internal slot, and `recall_setup(number)` restores
+state from that slot. `save_named_setup()` also specifies the internal state
+filename. Internal deletion, locking and validity queries also support ROF
+recording files. External file/directory operations
 never act on the controlling computer's filesystem.
 
 `set_recorder_destination(slot, filename)` chooses an internal recording location;
@@ -110,10 +111,10 @@ These guide variants share one public implementation:
 | --- | --- |
 | `:OUTP:CVCC?`, `:OUTP:MODE?` | `get_output_mode()` / channel `output_mode` |
 | Protection `:ALAR?`, `:QUES?`, source `:PROT:TRIP?` | `get_ocp()`, `get_ovp()` / channel alarm properties |
-| Output and source protection enable/threshold commands | Existing OCP/OVP APIs |
+| Output and source protection enable/threshold commands | `get_ocp_enable()`, `get_ocp_value()`, `get_ovp_enable()`, `get_ovp_value()` and matching setters |
 | Output range and source voltage range | `output_range` |
 | Output timer and `:TIMEr` entry/state commands | `set/get_timer_parameters()`, `timer_enabled` |
-| Local state save/recall commands and `*SAV`/`*RCL` | Existing setup methods; named save where needed |
+| Local state save/recall commands and `*SAV`/`*RCL` | `save_setup()`, `recall_setup()`, `save_named_setup()` |
 | External store/recall and `:MMEMory` load/store | `save_file()`, `recall_file()` |
 | `:SYST:BRIGhtness`, `:SYST:RGBBrightness` | `brightness` |
 | `:SYST:KLOC:STAT`, `:SYST:RWLock` | `keylock_enabled` |
@@ -121,41 +122,14 @@ These guide variants share one public implementation:
 | `:TRIG:IN:IMMediate`, `:INITiate` | `init_trigger()` |
 | Trigger input voltage/current and source triggered levels | `set/get_source_trigger()` / channel triggered properties |
 
-## Changes from the unfinished API
+## Apply commands and response types
 
-The old warning-only names have been replaced or completed as follows. Existing
-implemented channel/getter/setter APIs remain available.
-
-| Old unfinished names | Implemented interface |
-| --- | --- |
-| `set/get_delay_parameters` | Indexed methods with index/state/duration arguments |
-| `set/get_delay_state` | `delay_enabled` |
-| `set/get_delay_state_pattern` | `delay_state_pattern` |
-| `set/get_delay_stop_condition` | `delay_stop_condition` |
-| `set/get_delay_time_method` | `delay_time_method` |
-| `set_output_range`, `set_voltage_range` | `output_range` |
-| `set/get_output_timer` | `set/get_timer_parameters` |
-| `set/get_output_timer_enable` | `timer_enabled` |
-| `set/get_output_track` | Completed channel-aware methods |
-| `set/get_current_step`, `set/get_voltage_step` | Completed channel-aware methods |
-| `set/get_source_trigger` | Completed; getter no longer takes a level |
-| `clear_ocp_circuit`, `clear_ovp_circuit` | Completed, with optional channel argument |
-| `set/get_beeper` | `beeper_enabled`; `beep()` sounds once |
-| `set/get_gpib_config` | `gpib_address` |
-| `set/get_lan_config` | Individual `lan_*` properties and `apply_lan_config()` |
-| `set/get_rs232_config` | Individual `rs232_*` properties |
-| `set/get_contrast`, `set/get_brightness` | `contrast`, `brightness` |
-| `set/get_key_keylock` | `set/get_key_lock(key, ...)` |
-| `set/get_language`, `set/get_lock` | `language`, `locked` |
-| `set/get_on_off_sync`, `set/get_otp_enable` | `on_off_sync_enabled`, `otp_enabled` |
-| `set/get_power_on_config_mode` | `power_on_config_mode` |
-| `set_screen_saver_enable`, `set/get_track_mode`, `get_scpi_version` | `screen_saver_enabled`, `track_mode`, `scpi_version` |
-
-`set_apply()` rejects current-only and empty configurations before sending a
-command. Channel-only selection is supported. `get_apply()` raises `ValueError`
-if a function is supplied without a channel, rather than sending a known invalid
-query. Its complete response is a tuple. The virtual driver's return types now
-match the hardware driver, including identity, options and measurements.
+`set_apply()` accepts a channel selection, voltage, and current. Current requires
+a voltage, and at least a channel or voltage must be supplied. `get_apply()`
+returns a scalar for a channel/function query or a tuple containing the full
+response when no function is specified; specifying a function requires a channel.
+The virtual driver uses the same public interface and response types as the
+hardware driver, including identity, options, and measurements.
 
 ## Virtual behavior
 

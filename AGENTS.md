@@ -56,9 +56,9 @@ no CI configuration or configured formatter, linter, or type checker.
 - When changing a public API, inspect the corresponding virtual method and update
   its behavior where appropriate. The virtual driver inherits the hardware API;
   preserve matching signatures and response types.
-- All documented command families now have implementations. Do not reintroduce
-  warning-only stubs or duplicate equivalent SCPI commands. See
-  `docs/driver-interface.md` for command consolidation and API migration details.
+- All documented command families have implementations. Do not add warning-only
+  stubs or duplicate equivalent SCPI commands. See `docs/driver-interface.md`
+  for command consolidation and the current public interface.
 - For SCPI changes, verify command spelling, separators, query suffixes, response
   parsing, and model restrictions against the Rigol programming guide. The driver
   module docstring links to the instrument documentation.
