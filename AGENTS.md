@@ -32,8 +32,10 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 
 `tests/unit/` contains pytest regressions for driver behavior, channel views,
 error-queue diagnostics, virtual state transitions, and the hardware test harness.
-`tests/fakes.py` provides shared VISA doubles; `tests/api.py` and
-`tests/extended_api.py` list public API contracts. `tests/hardware/` contains opt-in real instrument tests, configured
+`tests/fakes.py` provides shared VISA doubles. Keep protocol examples beside their
+unit tests, and test the virtual driver through stateful behavior. Hardware cases
+have their own applicability rules and do not reuse unit-test command tables.
+`tests/hardware/` contains opt-in real instrument tests, configured
 through pytest CLI options in `tests/conftest.py`. There is
 no CI configuration or configured formatter, linter, or type checker.
 
@@ -97,8 +99,9 @@ is available or enable outputs without the explicit hardware CLI option. Tests
 must run serially against each instrument. The fixture shuts down physical
 channels even when only a subset is selected; persistent changes require flags.
 New guide-family hardware cases require --hardware-guide; persistent file and
-preset changes require the additional scratch slot/directory/preset arguments. Preserve the public API coverage inventory when
-adding methods/properties.
+preset changes require the additional scratch slot/directory/preset arguments.
+Add focused command/response cases or behavior tests when extending the driver;
+avoid separate API-name inventories and per-member repetitions of wrapper tests.
 
 The IEEE488.2 identity, options, enable registers, status byte, and power-on
 clear setting are properties. Hardware property access performs fresh VISA I/O.

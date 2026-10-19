@@ -11,8 +11,6 @@ import time
 
 import pytest
 
-from tests.extended_api import PROPERTIES
-
 pytestmark = pytest.mark.hardware
 
 
@@ -22,31 +20,38 @@ def require_extended_suite(pytestconfig):
         pytest.skip("extended guide cases require --hardware-guide")
 
 
-# Reads and same-value assignments exercise the new settings without starting
-# timed outputs, changing communication addresses or locking out the connection.
-ROUND_TRIP_PROPERTIES = [
-    name
-    for name, case in PROPERTIES.items()
-    if case[4]
-    and not name.startswith(("analyzer_", "lan_", "rs232_", "monitor_"))
-    and name
-    not in {
-        "gpib_address",
-        "output_range",
-        "locked",
-        "language",
-        "beeper_enabled",
-        "otp_enabled",
-        "on_off_sync_enabled",
-        "recorder_enabled",
-        "recorder_period",
-        "directory",
-        "delay_enabled",
-        "timer_enabled",
-        "trigger_source",
-        "trigger_delay",
-    }
-]
+# Same-value assignments exercise guide settings while preserving the bench
+# configuration and avoiding communication, lock, output, and storage changes.
+ROUND_TRIP_PROPERTIES = (
+    "delay_state_pattern",
+    "delay_stop_condition",
+    "delay_time_method",
+    "display_mode",
+    "display_enabled",
+    "preset_key",
+    "questionable_enable_register",
+    "instrument_questionable_enable_register",
+    "brightness",
+    "contrast",
+    "power_on_config_mode",
+    "screen_saver_enabled",
+    "track_mode",
+    "timer_cycles",
+    "timer_end_state",
+    "timer_groups",
+    "timer_template",
+    "timer_template_object",
+    "timer_template_max",
+    "timer_template_min",
+    "timer_template_inverted",
+    "timer_template_fall_rate",
+    "timer_template_rise_rate",
+    "timer_template_interval",
+    "timer_template_period",
+    "timer_template_points",
+    "timer_template_symmetry",
+    "timer_template_width",
+)
 
 
 @pytest.mark.parametrize("name", ROUND_TRIP_PROPERTIES)

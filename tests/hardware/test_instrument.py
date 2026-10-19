@@ -11,12 +11,29 @@ import pytest
 import pyvisa
 
 from dp800 import InstrumentError
-from tests.api import READ_PROPERTIES
 
 pytestmark = pytest.mark.hardware
 
 
-@pytest.mark.parametrize("name", READ_PROPERTIES)
+# These reads are suitable for a connected instrument without changing its state.
+READ_ONLY_PROPERTIES = (
+    "standard_event_enable_register",
+    "status_byte_enable_register",
+    "status_byte_register",
+    "power_on_status_clear_bit",
+    "identity",
+    "option_installation_status",
+    "self_test_results",
+    "temperature_test_result",
+    "delay_end_state",
+    "delay_groups",
+    "trigger_coupling_channels",
+    "selected_channel",
+    "keylock_enabled",
+)
+
+
+@pytest.mark.parametrize("name", READ_ONLY_PROPERTIES)
 def test_read_properties(hardware, bench_config, name):
     if (
         name in {"selected_channel", "trigger_coupling_channels"}

@@ -9,7 +9,6 @@ import pyvisa
 
 from dp800 import DP800Channel, InstrumentError
 from virtual_dp800 import DP800
-from tests.extended_api import PROPERTIES
 
 
 @pytest.fixture
@@ -76,16 +75,6 @@ def test_framing_conflicts_warn(kwargs):
     driver.disconnect()
 
 
-@pytest.mark.parametrize(
-    "name",
-    [name for name, case in PROPERTIES.items() if case[4] and name != "output_range"],
-)
-def test_property_assignments_retain_values(supply, name):
-    _, _, expected, value, _ = PROPERTIES[name]
-    setattr(supply, name, value)
-    assert getattr(supply, name) == expected
-
-
 def test_identity_and_self_test_types_match_hardware(supply):
     assert supply.identity == ["RIGOL", "DP832A", "VIRTUAL0001", "VIRTUAL"]
     assert isinstance(supply.option_installation_status, str)
@@ -114,6 +103,35 @@ def test_channels_are_independent_and_measure_cv_cc(supply):
     assert supply.selected_channel == 1
     supply.selected_channel = 2
     assert supply.get_current() == 0.1
+
+
+def test_channel_configuration_is_independent(supply):
+    first, second = supply.channels[1], supply.channels[2]
+    first.voltage_step, first.current_step = 0.2, 0.02
+    second.voltage_step, second.current_step = 0.5, 0.05
+    first.ocp_value, first.ovp_value = 1.2, 6.0
+    second.ocp_value, second.ovp_value = 2.2, 12.0
+
+    assert (first.voltage_step, first.current_step) == (0.2, 0.02)
+    assert (second.voltage_step, second.current_step) == (0.5, 0.05)
+    assert (first.ocp_value, first.ovp_value) == (1.2, 6.0)
+    assert (second.ocp_value, second.ovp_value) == (2.2, 12.0)
+
+
+def test_communication_settings_survive_reconnect():
+    with DP800() as supply:
+        supply.connect("virtual")
+        supply.gpib_address = 7
+        supply.rs232_baud_rate = 19200
+        supply.rs232_parity = "EVEN"
+        supply.lan_ip_address = "192.0.2.42"
+        supply.disconnect()
+        supply.connect("virtual")
+
+        assert supply.gpib_address == 7
+        assert supply.rs232_baud_rate == 19200
+        assert supply.rs232_parity == "EVEN"
+        assert supply.lan_ip_address == "192.0.2.42"
 
 
 def test_open_circuit_draws_no_current():

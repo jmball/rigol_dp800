@@ -115,8 +115,10 @@ Install the test dependencies and run pytest:
 `tests/unit/` covers connection ownership and cleanup, framing, command strings,
 response parsing, properties, channels, error handling and the virtual driver.
 Shared fake VISA resources live in `tests/fakes.py`. Parameterized interface
-cases replace duplicate command tests; an explicit API inventory detects public
-members without test cases. Extended command cases live in `tests/extended_api.py`.
+cases keep literal SCPI commands and example responses beside the unit tests
+that check them. Connection and error tests cover the shared I/O wrappers;
+virtual tests exercise stateful behavior. Hardware tests define their own cases
+and model restrictions independently of the fake-resource tests.
 
 `tests/hardware/` exercises the implemented interface through real SCPI round
 trips. Hardware tests are skipped unless a resource and expected model are
