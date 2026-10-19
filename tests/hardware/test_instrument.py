@@ -42,7 +42,9 @@ def test_read_properties(hardware, bench_config, name):
         pytest.skip("multi-channel command")
     value = getattr(hardware, name)
     if name == "identity":
-        assert len(value) == 4 and value[1].strip() == bench_config.model
+        assert isinstance(value, str)
+        fields = value.split(",")
+        assert len(fields) == 4 and fields[1].strip() == bench_config.model
     elif name == "self_test_results":
         assert len(value) == 3
         assert all(item.strip().rsplit(":", 1)[-1].upper() == "PASS" for item in value)

@@ -76,7 +76,7 @@ def test_framing_conflicts_warn(kwargs):
 
 
 def test_identity_and_self_test_types_match_hardware(supply):
-    assert supply.identity == ["RIGOL", "DP832A", "VIRTUAL0001", "VIRTUAL"]
+    assert supply.identity == "RIGOL,DP832A,VIRTUAL0001,VIRTUAL"
     assert isinstance(supply.option_installation_status, str)
     assert supply.self_test_results == ["TopBoard:PASS", "BottomBoard:PASS", "Fan:PASS"]
     assert supply.get_board_test_results() == ["PASS", "PASS"]

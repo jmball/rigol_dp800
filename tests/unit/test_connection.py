@@ -308,7 +308,7 @@ class TestConnection:
             self.connect()
         log_info.assert_not_called()
         assert self.resource.commands == []
-        assert self.driver.identity == ["RIGOL", "DP832", "serial", "version"]
+        assert self.driver.identity == "RIGOL,DP832,serial,version"
         assert self.resource.commands == ["*IDN?"]
         with patch("virtual_dp800.virtual_dp800.logger.info") as virtual_log_info:
             VirtualDP800().connect("virtual")

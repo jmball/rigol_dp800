@@ -281,7 +281,7 @@ class DP800:
         try:
             channel_count = 3
             try:
-                model = self.identity[1].strip().upper().removesuffix("A")
+                model = self.identity.split(",")[1].strip().upper().removesuffix("A")
                 channel_count = _MODEL_CHANNELS.get(model, 3)
             except Exception:
                 logger.debug(
@@ -1013,20 +1013,17 @@ class DP800:
         return value
 
     @property
-    def identity(self) -> list[str]:
+    def identity(self) -> str:
         """Get instrument identity string.
 
         Each access performs VISA I/O and can raise communication errors.
 
         Returns
         -------
-        id : list of str
-            List of identification strings consisting of manufacturer, model, serial
-            number, and board version number in order.
+        id : str
+            Raw comma-delimited identification response from the instrument.
         """
-        idn = self._query("*IDN?").split(",")
-
-        return idn
+        return self._query("*IDN?")
 
     def set_opc(self) -> None:
         """Set operation complete.

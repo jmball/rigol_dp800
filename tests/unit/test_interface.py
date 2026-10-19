@@ -12,8 +12,8 @@ READ_PROPERTIES = {
     "power_on_status_clear_bit": ("*PSC?", "1", 1),
     "identity": (
         "*IDN?",
-        "RIGOL,DP832,serial,version",
-        ["RIGOL", "DP832", "serial", "version"],
+        "RIGOL, DP832, serial, version",
+        "RIGOL, DP832, serial, version",
     ),
     "option_installation_status": ("*OPT?", "DP8-LAN,0", "DP8-LAN,0"),
     "self_test_results": ("*TST?", "PASS,PASS,FAIL", ["PASS", "PASS", "FAIL"]),
