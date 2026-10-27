@@ -45,7 +45,9 @@ def main() -> None:
     parser.add_argument("resource", help="VISA resource name, such as USB0::...::INSTR")
     parser.add_argument("--channel", type=int, choices=(1, 2, 3), default=1)
     parser.add_argument("--backend", help="optional PyVISA backend, such as @py")
-    parser.add_argument("--timeout", type=_nonnegative_finite, help="VISA timeout in milliseconds")
+    parser.add_argument(
+        "--timeout", type=_nonnegative_finite, help="VISA timeout in milliseconds"
+    )
     parser.add_argument(
         "--enable-output",
         action="store_true",
@@ -57,7 +59,9 @@ def main() -> None:
 
     if args.enable_output and (args.voltage is None or args.current is None):
         parser.error("--enable-output requires both --voltage and --current")
-    if not args.enable_output and (args.voltage is not None or args.current is not None):
+    if not args.enable_output and (
+        args.voltage is not None or args.current is not None
+    ):
         parser.error("--voltage and --current require --enable-output")
 
     manager = pyvisa.ResourceManager(args.backend) if args.backend else None

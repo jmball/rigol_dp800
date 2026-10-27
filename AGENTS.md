@@ -36,8 +36,9 @@ error-queue diagnostics, virtual state transitions, and the hardware test harnes
 unit tests, and test the virtual driver through stateful behavior. Hardware cases
 have their own applicability rules and do not reuse unit-test command tables.
 `tests/hardware/` contains opt-in real instrument tests, configured
-through pytest CLI options in `tests/conftest.py`. There is
-no CI configuration or configured formatter, linter, or type checker.
+through pytest CLI options in `tests/conftest.py`. Ruff provides linting and
+formatting, and ty provides type checking; their configuration lives in
+`pyproject.toml`. There is no CI configuration.
 
 ## Making changes
 
@@ -73,7 +74,7 @@ Use an isolated environment when installation is needed:
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[test]'
+.venv/bin/python -m pip install -e '.[dev]'
 ```
 
 For a syntax check that does not import the driver or connect to hardware:
@@ -83,8 +84,23 @@ python3 -m compileall -q src
 ```
 
 Run `git diff --check` for whitespace errors. For documentation-only changes,
-review the text and diff; dependency installation and hardware checks are not
-needed. Keep environments, bytecode, build outputs, and egg metadata untracked.
+review the text and diff and run Ruff's format check on Python examples in
+Markdown. Hardware checks are not needed. Keep environments, bytecode, build
+outputs, and egg metadata untracked.
+
+Always use ty for type checking and Ruff for linting and formatting. For Python
+changes, format the checkout and run all three checks before completing work:
+
+```sh
+.venv/bin/ruff format .
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/ty check
+```
+
+Check source, tests, and examples. Fix diagnostics rather than disabling checks
+globally; document any narrow suppression needed for deliberate invalid-input
+tests or third-party typing limitations.
 
 Run regression tests with `.venv/bin/python -m pytest`
 after installing the checkout. For driver behavior changes, use focused tests

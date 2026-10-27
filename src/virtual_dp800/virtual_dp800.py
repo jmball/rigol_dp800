@@ -22,9 +22,11 @@ from pyvisa.resources import MessageBasedResource
 
 from dp800.dp800 import (
     DP800 as HardwareDP800,
+)
+from dp800.dp800 import (
     InstrumentError,
-    _protocol_settings,
     _fields,
+    _protocol_settings,
 )
 
 logger = logging.getLogger(__name__)
@@ -228,7 +230,7 @@ class _VirtualResource(MessageBasedResource):
         self.ranges = list(_RANGES[self.base_model])
         self.files: dict[tuple[str, int], dict[str, Any]] = {}
         self.external: dict[str, dict[str, Any]] = {}
-        self.directories = {ntpath.normpath("D:/")}
+        self.directories: set[str] = {ntpath.normpath("D:/")}
         self.errors: list[str] = []
         self.reset()
 
@@ -468,8 +470,9 @@ class _VirtualResource(MessageBasedResource):
         if not math.isfinite(result):
             self._fail("Invalid numeric value")
         if header in (":VOLT", ":CURR", ":VOLT:TRIG", ":CURR:TRIG"):
-            low, high = self._bound(header, number, False), self._bound(
-                header, number, True
+            low, high = (
+                self._bound(header, number, False),
+                self._bound(header, number, True),
             )
             if not low <= result <= high:
                 self._fail("Setpoint out of range")
@@ -660,7 +663,9 @@ class _VirtualResource(MessageBasedResource):
                     else (
                         (20.0, 10.0)
                         if self.base_model == "DP811"
-                        else (20.0, 10.0) if high else (8.0, 20.0)
+                        else (20.0, 10.0)
+                        if high
+                        else (8.0, 20.0)
                     )
                 )
             return self._rating(1)

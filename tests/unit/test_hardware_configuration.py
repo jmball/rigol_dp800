@@ -3,12 +3,19 @@
 """Validate hardware configuration and cleanup without opening a real device."""
 
 from dataclasses import replace
+from inspect import unwrap
+from typing import Any, Callable, cast
 from unittest.mock import Mock
 
 import pytest
 
 from tests.hardware import conftest as hardware_fixtures
 from tests.hardware.support import HardwareConfig
+
+
+def fixture_function(fixture: object) -> Callable[..., Any]:
+    """Get pytest's wrapped fixture function for direct lifecycle testing."""
+    return unwrap(cast(Callable[..., Any], fixture))
 
 
 def options(**overrides):
@@ -129,7 +136,7 @@ def test_harness_cleanup_only_addresses_physical_channels(
     resource.responses["*IDN?"] = f"RIGOL,{model},serial,version"
     config = HardwareConfig.from_pytest(options(**{"--hardware-model": model}))
     monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
-    generator = hardware_fixtures.hardware.__wrapped__(config, manager)
+    generator = fixture_function(hardware_fixtures.hardware)(config, manager)
     # Fixture construction itself performs no I/O.
     manager.open_resource.assert_not_called()
     assert next(generator) is driver
@@ -148,7 +155,7 @@ def test_harness_checks_identity_before_changing_outputs(fake_visa, monkeypatch)
     driver, resource, manager = fake_visa
     config = HardwareConfig.from_pytest(options(**{"--hardware-model": "DP811"}))
     monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
-    generator = hardware_fixtures.hardware.__wrapped__(config, manager)
+    generator = fixture_function(hardware_fixtures.hardware)(config, manager)
     with pytest.raises(AssertionError, match="Connected model"):
         next(generator)
     assert resource.commands == ["*IDN?"]
@@ -159,7 +166,7 @@ def test_harness_attempts_remaining_cleanup_after_failure(fake_visa, monkeypatch
     driver, resource, manager = fake_visa
     config = HardwareConfig.from_pytest(options())
     monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
-    generator = hardware_fixtures.hardware.__wrapped__(config, manager)
+    generator = fixture_function(hardware_fixtures.hardware)(config, manager)
     next(generator)
     failure = OSError("CH1 shutdown failed")
     resource.write_errors[":OUTP  CH1,OFF"] = failure
@@ -177,7 +184,7 @@ def test_harness_manager_is_closed_on_failure(fake_visa, monkeypatch, backend):
     config = replace(HardwareConfig.from_pytest(options()), backend=backend)
     factory = Mock(return_value=manager)
     monkeypatch.setattr(hardware_fixtures.pyvisa, "ResourceManager", factory)
-    generator = hardware_fixtures.visa_manager.__wrapped__(config)
+    generator = fixture_function(hardware_fixtures.visa_manager)(config)
     assert next(generator) is manager
     factory.assert_called_once_with(*([backend] if backend else []))
     with pytest.raises(OSError, match="test failure"):

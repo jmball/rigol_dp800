@@ -35,9 +35,9 @@ Scalar settings are properties: for example, `supply.beeper_enabled = False`,
 
 ```python
 supply.delay_stop_condition = (">V", 5.0)  # ("NONE", None) disables the condition.
-supply.delay_time_method = ("INC", 1, 2)   # Method, base/on time, step/off time.
+supply.delay_time_method = ("INC", 1, 2)  # Method, base/on time, step/off time.
 supply.monitor_voltage_condition = (">V", "AND")
-supply.timer_cycles = ("N", 3)             # ("I", None) selects infinite cycles.
+supply.timer_cycles = ("N", 3)  # ("I", None) selects infinite cycles.
 supply.timer_template_object = ("V", 0.1)  # Vary voltage, hold current at 0.1 A.
 supply.timer_template = "SINE"
 ```
@@ -45,12 +45,12 @@ supply.timer_template = "SINE"
 Arguments remain explicit where needed:
 
 ```python
-supply.set_delay_parameters(0, True, 2)    # Entry index, output state, seconds.
+supply.set_delay_parameters(0, True, 2)  # Entry index, output state, seconds.
 supply.set_timer_parameters(0, 1.0, 0.01, 2.0)
 entries = supply.get_timer_parameters(first=0, count=3)
 supply.set_trigger_input_source(["CH1", "CH2"], line=0)
 supply.set_preset_voltage(1, 2.0)
-supply.save_preset(1)                      # Commit edited preset values.
+supply.save_preset(1)  # Commit edited preset values.
 supply.preset_key = "USER1"
 supply.apply_preset()
 ```

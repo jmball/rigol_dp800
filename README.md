@@ -11,7 +11,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install .
 ```
 
-For development, use `.venv/bin/python -m pip install -e .` instead.
+For development, use `.venv/bin/python -m pip install -e '.[dev]'` instead.
 On Windows, use `.venv\Scripts\python.exe` for the environment's interpreter.
 PyVISA and the pure Python `pyvisa-py` backend are installed as dependencies;
 hardware access may require additional drivers or backend configuration.
@@ -117,6 +117,22 @@ All queries use the same connection guard in `_query()`. Error-queue queries
 pass `check_errors=False` to prevent recursive checks and timeout diagnostics.
 Successful normal queries still check the queue: receiving a valid response
 does not establish that no device or previously queued errors exist.
+
+## Development checks
+
+Install the development dependencies to use ty for type checking and Ruff for
+linting and formatting:
+
+```sh
+.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/ruff format .
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/ty check
+```
+
+Run these checks for Python changes. They cover the source, tests, and examples;
+Ruff also formats Python examples in Markdown.
 
 ## Tests
 

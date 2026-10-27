@@ -15,6 +15,7 @@ from types import MappingProxyType, TracebackType
 from typing import Any, Final, Literal
 
 import pyvisa
+import pyvisa.constants
 from pyvisa.resources import MessageBasedResource, Resource
 
 from .channel import DP800Channel
@@ -713,7 +714,7 @@ class DP800:
             Number of output groups of delayer cycles, i.e. number of times output
             turns on or off.
         """
-        cmd = f":DELAY:GROUP?"
+        cmd = ":DELAY:GROUP?"
         groups = int(self._query(cmd))
 
         return groups
@@ -789,7 +790,7 @@ class DP800:
         duration : int
             Duration in seconds, 1–99999.
         """
-        self._write(f':DELAY:PARA {index},{"ON" if enabled else "OFF"},{duration}')
+        self._write(f":DELAY:PARA {index},{'ON' if enabled else 'OFF'},{duration}")
 
     def get_delay_parameters(
         self, first: int = 0, count: int = 1
@@ -1079,7 +1080,7 @@ class DP800:
                 * 0 : Cleared, status enable registers maintain values at power down.
                 * 1 : Set, all status and enable registers are cleared on power up.
         """
-        cmd = f"*PSC?"
+        cmd = "*PSC?"
         value = int(self._query(cmd))
 
         return value
@@ -1112,7 +1113,7 @@ class DP800:
 
     def reset(self) -> None:
         """Reset the instrument to the factory default configuration."""
-        cmd = f"*RST"
+        cmd = "*RST"
         self._write(cmd)
 
     def save_setup(self, number: int) -> None:
@@ -1326,7 +1327,7 @@ class DP800:
         values : str or list of str
             Measurement response string(s), without numeric conversion.
         """
-        cmd = f":MEAS"
+        cmd = ":MEAS"
         if func is not None:
             cmd += f":{func}"
         cmd += "?"
@@ -1403,7 +1404,7 @@ class DP800:
             Whether to lock the file.
         """
         self._write(
-            f':MEM:LOCK {_token(file_type)},{slot},{"ON" if enabled else "OFF"}'
+            f":MEM:LOCK {_token(file_type)},{slot},{'ON' if enabled else 'OFF'}"
         )
 
     def get_memory_lock(self, file_type: str, slot: int) -> bool:
@@ -1695,7 +1696,7 @@ class DP800:
         enabled : bool
             Enable the selected response.
         """
-        self._write(f':MONI:STOP {_token(action)},{"ON" if enabled else "OFF"}')
+        self._write(f":MONI:STOP {_token(action)},{'ON' if enabled else 'OFF'}")
 
     # --- OUTPut commands ---
 
@@ -2335,7 +2336,7 @@ class DP800:
         value : float or {"MIN", "MAX"} or None, optional
             Threshold; omitted leaves its previous value.
         """
-        command = f':PRES:USER{preset}:SET:OCP {"ON" if enabled else "OFF"}'
+        command = f":PRES:USER{preset}:SET:OCP {'ON' if enabled else 'OFF'}"
         if value is not None:
             command += f",{value}"
         self._write(command)
@@ -2380,7 +2381,7 @@ class DP800:
         value : float or {"MIN", "MAX"} or None, optional
             Threshold; omitted leaves its previous value.
         """
-        command = f':PRES:USER{preset}:SET:OVP {"ON" if enabled else "OFF"}'
+        command = f":PRES:USER{preset}:SET:OVP {'ON' if enabled else 'OFF'}"
         if value is not None:
             command += f",{value}"
         self._write(command)
@@ -3462,7 +3463,6 @@ class DP800:
         enable : bool
             Enabled/disabled state of the front panel lock
         """
-        cmd = ":SYST:KLOC:STAT?"
         response = self._query(":SYST:KLOC:STAT?")
         return response == "ON"
 
@@ -3527,7 +3527,7 @@ class DP800:
         enabled : bool
             Whether to lock this key.
         """
-        self._write(f':SYST:KLOC {_token(key)},{"ON" if enabled else "OFF"}')
+        self._write(f":SYST:KLOC {_token(key)},{'ON' if enabled else 'OFF'}")
 
     def get_key_lock(self, key: str) -> bool:
         """Query an individual front-panel key lock.

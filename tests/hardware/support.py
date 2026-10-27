@@ -6,9 +6,9 @@ Model/channel applicability follows the Rigol DP800 programming guide:
 https://www.batronix.com/pdf/Rigol/ProgrammingGuide/DP800_ProgrammingGuide_EN.pdf
 """
 
-from dataclasses import dataclass
 import json
 import math
+from dataclasses import dataclass
 
 import pytest
 
@@ -94,8 +94,9 @@ class HardwareConfig:
             raise pytest.UsageError(
                 "--hardware-channels must contain unique physical channels for the model"
             )
-        voltage, current = config.getoption("--hardware-voltage"), config.getoption(
-            "--hardware-current"
+        voltage, current = (
+            config.getoption("--hardware-voltage"),
+            config.getoption("--hardware-current"),
         )
         if not math.isfinite(voltage) or not 0 < voltage <= 5:
             raise pytest.UsageError("--hardware-voltage must be finite and in (0, 5] V")
@@ -103,8 +104,9 @@ class HardwareConfig:
             raise pytest.UsageError(
                 "--hardware-current must be finite and in (0, 0.1] A"
             )
-        timeout, slot = config.getoption("--visa-timeout"), config.getoption(
-            "--hardware-save-slot"
+        timeout, slot = (
+            config.getoption("--visa-timeout"),
+            config.getoption("--hardware-save-slot"),
         )
         try:
             resource_options = json.loads(config.getoption("--visa-options"))

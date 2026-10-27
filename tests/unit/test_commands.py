@@ -2,11 +2,12 @@
 
 import pytest
 import pyvisa
+import pyvisa.constants
+
 from dp800 import InstrumentError
 
 
 class TestCommands:
-
     @pytest.fixture(autouse=True)
     def setup(self, fake_visa, caplog):
         self.driver, self.resource, self.manager = fake_visa

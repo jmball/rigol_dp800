@@ -65,8 +65,9 @@ def test_protection_settings_and_alarm_labels(
     hardware, channel, bench_config, protection
 ):
     value_name, enable_name = f"{protection}_value", f"{protection}_enabled"
-    original_value, original_enabled = getattr(channel, value_name), getattr(
-        channel, enable_name
+    original_value, original_enabled = (
+        getattr(channel, value_name),
+        getattr(channel, enable_name),
     )
     selected = (
         hardware.selected_channel if len(bench_config.physical_channels) > 1 else None

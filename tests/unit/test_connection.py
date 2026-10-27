@@ -4,16 +4,18 @@ import subprocess
 import sys
 import warnings
 from unittest.mock import MagicMock, patch
+
 import pytest
 import pyvisa
+import pyvisa.constants
 from pyvisa.resources import Resource
+
 from dp800 import DP800
-from virtual_dp800 import DP800 as VirtualDP800
 from tests.fakes import FakeResource, make_fake_visa
+from virtual_dp800 import DP800 as VirtualDP800
 
 
 class TestConnection:
-
     @pytest.fixture(autouse=True)
     def setup(self, fake_visa, caplog):
         self.driver, self.resource, self.manager = fake_visa

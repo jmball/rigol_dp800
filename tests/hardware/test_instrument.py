@@ -9,6 +9,7 @@ import math
 
 import pytest
 import pyvisa
+import pyvisa.constants
 
 from dp800 import InstrumentError
 

@@ -1,15 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from unittest.mock import patch
+
 import pytest
 import pyvisa
+import pyvisa.constants
+
 from dp800 import InstrumentError
-from virtual_dp800 import DP800 as VirtualDP800
 from tests.fakes import make_fake_visa
+from virtual_dp800 import DP800 as VirtualDP800
 
 
 class TestError:
-
     @pytest.fixture(autouse=True)
     def setup(self, fake_visa, caplog):
         self.driver, self.resource, self.manager = fake_visa

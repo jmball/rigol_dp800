@@ -16,7 +16,7 @@ class FakeResource(MessageBasedResource):
     encoding = "utf-8"
     read_termination = None
     write_termination = "\r\n"
-    timeout = 2000
+    timeout: float = 2000
     query_delay = 0.0
 
     def __init__(self):
@@ -36,31 +36,31 @@ class FakeResource(MessageBasedResource):
         self.closed = 0
         self.on_io = lambda: None
 
-    def write(self, command):
+    def write(self, message, termination=None, encoding=None):
         self.on_io()
-        self.io_events.append(command)
-        self.commands.append(command)
-        if command in self.write_errors:
-            raise self.write_errors[command]
-        self.queued_errors.extend(self.errors_after_write.get(command, []))
-        return len(command)
+        self.io_events.append(message)
+        self.commands.append(message)
+        if message in self.write_errors:
+            raise self.write_errors[message]
+        self.queued_errors.extend(self.errors_after_write.get(message, []))
+        return len(message)
 
-    def query(self, command, delay=None):
+    def query(self, message, delay=None):
         self.on_io()
-        self.io_events.append(command)
-        if command == ":SYST:ERR?":
+        self.io_events.append(message)
+        if message == ":SYST:ERR?":
             self.error_queries.append(self.timeout)
             self.error_query_delays.append(delay)
         else:
-            self.commands.append(command)
+            self.commands.append(message)
         if self.query_error is not None:
             raise self.query_error
-        if command == ":SYST:ERR?":
+        if message == ":SYST:ERR?":
             if self.diagnostic_error is not None:
                 raise self.diagnostic_error
             return self.queued_errors.pop(0) if self.queued_errors else '0,"No error"'
-        self.queued_errors.extend(self.errors_after_query.get(command, []))
-        return self.responses[command]
+        self.queued_errors.extend(self.errors_after_query.get(message, []))
+        return self.responses[message]
 
     def close(self):
         self.closed += 1

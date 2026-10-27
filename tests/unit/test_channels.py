@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from typing import cast
+
 import pytest
+
 from dp800 import DP800Channel, InstrumentError
 from tests.fakes import FakeResource
 
 
 class TestChannel:
-
     @pytest.fixture(autouse=True)
     def setup(self, fake_visa, caplog):
         self.supply, self.resource, self.manager = fake_visa
@@ -41,7 +43,8 @@ class TestChannel:
                 DP800Channel(self.supply, invalid)
         for invalid in (True, 1.0, "1"):
             with pytest.raises(TypeError):
-                DP800Channel(self.supply, invalid)
+                # Keep invalid runtime values while satisfying the constructor's annotation.
+                DP800Channel(self.supply, cast(int, invalid))
 
     def test_setpoints_and_output_address_fixed_channel_without_selecting_it(self):
         channel = self.supply.channels[2]

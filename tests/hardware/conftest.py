@@ -44,9 +44,9 @@ def hardware(bench_config, visa_manager):
         identity = supply.identity
         identity_fields = identity.split(",")
         assert len(identity_fields) == 4
-        assert (
-            identity_fields[1].strip().upper() == bench_config.model
-        ), "Connected model differs from --hardware-model"
+        assert identity_fields[1].strip().upper() == bench_config.model, (
+            "Connected model differs from --hardware-model"
+        )
         verified = True
         for number in bench_config.physical_channels:
             supply.channels[number].output_enabled = False
