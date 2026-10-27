@@ -27,9 +27,10 @@ Run these scripts from the repository root after installation:
 
 The [virtual example](examples/virtual.py) demonstrates voltage regulation and
 current limiting with a simulated resistive load. The
-[hardware example](examples/hardware.py) reads identity, setpoints and measurements.
-Use `--enable-output --voltage 5 --current 0.1` to configure and briefly enable
-the selected channel. Run it with `--help` for channel and VISA options.
+[hardware example](examples/hardware.py) configures channel 1 for 5 V with a
+0.1 A current limit, briefly enables its output, and reads measurements.
+Its only command-line argument is the instrument's VISA resource name; edit the
+settings in the script to suit your connected equipment.
 Both scripts disconnect on exit; on hardware this disables all physical outputs.
 
 ## Channels
