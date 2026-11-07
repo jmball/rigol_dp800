@@ -16,6 +16,10 @@ from dp800 import InstrumentError
 pytestmark = pytest.mark.hardware
 
 
+def test_available_channels(hardware, bench_config):
+    assert hardware.available_channels == bench_config.physical_channels
+
+
 # These reads are suitable for a connected instrument without changing its state.
 READ_ONLY_PROPERTIES = (
     "standard_event_enable_register",

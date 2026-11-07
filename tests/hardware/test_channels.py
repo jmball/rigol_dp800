@@ -21,6 +21,18 @@ def channel(hardware, channel_number):
     return hardware.channels[channel_number]
 
 
+def test_channel_limits(channel):
+    for limits, setpoint in (
+        (channel.voltage_limits, channel.voltage),
+        (channel.current_limits, channel.current),
+    ):
+        assert isinstance(limits, tuple) and len(limits) == 2
+        minimum, maximum = limits
+        assert all(math.isfinite(value) for value in limits)
+        assert minimum < maximum
+        assert minimum <= setpoint <= maximum
+
+
 def select_channel(supply, config, number):
     if len(config.physical_channels) > 1:
         supply.selected_channel = number

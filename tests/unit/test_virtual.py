@@ -85,6 +85,62 @@ def test_identity_and_self_test_types_match_hardware(supply):
     assert supply.temperature_test_result == 25.0
 
 
+@pytest.mark.parametrize(
+    ("model", "limits"),
+    [
+        ("DP811", [((0.0, 21.0), (0.0, 10.5))]),
+        ("DP813", [((0.0, 8.4), (0.0, 21.0))]),
+        ("DP821", [((0.0, 63.0), (0.0, 1.05)), ((0.0, 8.4), (0.0, 10.5))]),
+        ("DP822", [((0.0, 21.0), (0.0, 5.3)), ((0.0, 5.3), (0.0, 16.4))]),
+        (
+            "DP831",
+            [
+                ((0.0, 8.4), (0.0, 5.3)),
+                ((0.0, 32.0), (0.0, 2.1)),
+                ((-32.0, 0.0), (0.0, 2.1)),
+            ],
+        ),
+        (
+            "DP832",
+            [
+                ((0.0, 32.0), (0.0, 3.2)),
+                ((0.0, 32.0), (0.0, 3.2)),
+                ((0.0, 5.3), (0.0, 3.2)),
+            ],
+        ),
+    ],
+)
+@pytest.mark.parametrize("suffix", ["", "A"])
+def test_available_channels_and_channel_limits(model, limits, suffix):
+    driver = DP800(model=model + suffix)
+    with driver:
+        driver.connect("virtual")
+        assert driver.available_channels == tuple(range(1, len(limits) + 1))
+        for number, (voltage, current) in enumerate(limits, 1):
+            assert driver.channels[number].voltage_limits == voltage
+            assert driver.channels[number].current_limits == current
+
+
+@pytest.mark.parametrize(
+    ("model", "ranges"),
+    [("DP811", (21.0, 10.5, 42.0, 5.3)), ("DP813", (8.4, 21.0, 21.0, 10.5))],
+)
+def test_single_channel_limits_follow_selected_range(model, ranges):
+    driver = DP800(model=model)
+    with driver:
+        driver.connect("virtual")
+        channel = driver.channels[1]
+        assert channel.voltage_limits == (0.0, ranges[0])
+        assert channel.current_limits == (0.0, ranges[1])
+        for high_range in ("HIGH", "P40V" if model == "DP811" else "P20V"):
+            driver.output_range = high_range
+            assert channel.voltage_limits == (0.0, ranges[2])
+            assert channel.current_limits == (0.0, ranges[3])
+            driver.output_range = "LOW"
+            assert channel.voltage_limits == (0.0, ranges[0])
+            assert channel.current_limits == (0.0, ranges[1])
+
+
 def test_channels_are_independent_and_measure_cv_cc(supply):
     channel = supply.channels[2]
     assert isinstance(channel, DP800Channel)
@@ -153,7 +209,7 @@ def test_steps_and_symbolic_setpoints(supply):
     supply.set_voltage_step("DEF", 1)
     assert supply.get_voltage_step(1, default=True) == 0.001
     channel.voltage = "MAX"
-    assert channel.voltage == 30.0
+    assert channel.voltage == 32.0
 
 
 @pytest.mark.parametrize("protection", ["ocp", "ovp"])
@@ -449,8 +505,8 @@ def test_questionable_conditions_and_events_are_separate(supply):
 
 def test_preset_bounds_and_partial_protection_update(supply):
     supply.set_preset_voltage(1, "MAX")
-    assert supply.get_preset_voltage(1) == 30.0
-    assert supply.get_preset_current(1, limit="MAX") == 3.0
+    assert supply.get_preset_voltage(1) == 32.0
+    assert supply.get_preset_current(1, limit="MAX") == 3.2
     supply.set_preset_ocp(1, True, 0.5)
     supply.set_preset_ocp(1, False)
     assert supply.get_preset_ocp(1) == (False, 0.5)

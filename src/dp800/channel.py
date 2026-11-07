@@ -17,8 +17,9 @@ class DP800Channel:
     All hardware settings and measurements perform VISA I/O. Each operation
     addresses this channel explicitly without changing selected_channel.
     Objects remain usable after reconnecting the parent and address its current
-    instrument. Channel numbers are limited to 1 - 3; support for an individual
-    channel is checked by the instrument, not this view.
+    instrument. Channel numbers are limited to 1 - 3. Limit properties discover
+    channel availability; settings and measurements leave enforcement to the
+    instrument.
 
     Parameters
     ----------
@@ -55,6 +56,50 @@ class DP800Channel:
             One-based physical channel number.
         """
         return self._channel
+
+    @property
+    def voltage_limits(self) -> tuple[float, float]:
+        """Minimum and maximum settable voltage for this connected channel.
+
+        Identity and bound queries perform I/O on every access. Single-channel
+        supplies report bounds for their currently selected output range.
+
+        Returns
+        -------
+        limits : tuple[float, float]
+            Numerically ordered (minimum, maximum) voltage in volts.
+
+        Raises
+        ------
+        RuntimeError
+            The parent supply is disconnected.
+        ValueError
+            The model is unsupported, identity is malformed, or this channel
+            is unavailable on the connected model.
+        """
+        return self._supply._get_channel_limits(self._channel, "VOLT")
+
+    @property
+    def current_limits(self) -> tuple[float, float]:
+        """Minimum and maximum settable current for this connected channel.
+
+        Identity and bound queries perform I/O on every access. Single-channel
+        supplies report bounds for their currently selected output range.
+
+        Returns
+        -------
+        limits : tuple[float, float]
+            Numerically ordered (minimum, maximum) current in amperes.
+
+        Raises
+        ------
+        RuntimeError
+            The parent supply is disconnected.
+        ValueError
+            The model is unsupported, identity is malformed, or this channel
+            is unavailable on the connected model.
+        """
+        return self._supply._get_channel_limits(self._channel, "CURR")
 
     @property
     def voltage(self) -> float:

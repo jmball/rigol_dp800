@@ -1,8 +1,8 @@
 # Driver interface
 
 The hardware and virtual drivers expose the same `DP800` interface. This reference
-covers the command families in the December 2015 Rigol DP800 programming guide
-(PGH03108-1110), available from the [programming guide mirror](https://www.batronix.com/pdf/Rigol/ProgrammingGuide/DP800_ProgrammingGuide_EN.pdf).
+covers the command families in the June 2021 Rigol DP800 programming guide
+(PGH03109-1110), available from the [programming guide mirror](https://www.batronix.com/files/Rigol/Labornetzteile/DP800/DP800_ProgrammingGuide_EN-22.pdf).
 Model/option restrictions are enforced by the real instrument. A Python member
 being present does not mean every model supports that operation. Later firmware
 commands outside that guide are not covered here.
@@ -13,6 +13,24 @@ operate on `selected_channel`; select it explicitly before calling those APIs.
 Those operations are deliberately not exposed on `DP800Channel`, since doing so
 would silently change the parent's channel selection. Channel views additionally
 expose increment sizes, triggered levels, tracking and questionable registers.
+
+`supply.available_channels` queries identity and returns the physical channel
+numbers for the connected model as a tuple. It supports DP811, DP813, DP821,
+DP822, DP831 and DP832, including their A variants. Malformed identity responses
+and unsupported models raise `ValueError`; discovery requires a connection.
+The `channels` mapping continues to provide stable views numbered 1–3, with
+`available_channels` identifying which views represent physical outputs.
+
+Each channel's `voltage_limits` and `current_limits` properties return numerical
+`(minimum, maximum)` tuples in volts and amperes. They check availability through
+identity, then query `:SOUR<n>:VOLT? MIN/MAX` or `:SOUR<n>:CURR? MIN/MAX` without
+changing channel selection. Bounds are settable values, which can exceed nominal
+ratings. Single-channel models report their currently selected output range;
+negative outputs have numerically ordered voltage bounds, such as `(-32.0, 0.0)`.
+These properties are read-only and uncached, so reconnects and range changes are
+reflected on the next access. An unavailable channel raises `ValueError` before
+its source is queried. Other channel operations leave availability enforcement
+to the instrument.
 
 Shutdown reads identity to disable physical outputs on known models, without
 caching a channel count. Unknown models or failed discovery fall back to all

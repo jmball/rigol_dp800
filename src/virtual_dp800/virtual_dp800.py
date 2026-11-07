@@ -119,6 +119,19 @@ _RANGES = {
     "DP832": [(30.0, 3.0), (30.0, 3.0), (5.0, 3.0)],
 }
 
+# Programmable endpoints from Table 2-1 of the June 2021 programming guide:
+# https://www.batronix.com/files/Rigol/Labornetzteile/DP800/DP800_ProgrammingGuide_EN-22.pdf
+# Entries represent physical channels, or LOW/HIGH ranges for single outputs.
+# Keep nominal values above for rating responses and reset defaults.
+_SETTABLE_LIMITS = {
+    "DP811": [((0.0, 21.0), 10.5), ((0.0, 42.0), 5.3)],
+    "DP813": [((0.0, 8.4), 21.0), ((0.0, 21.0), 10.5)],
+    "DP821": [((0.0, 63.0), 1.05), ((0.0, 8.4), 10.5)],
+    "DP822": [((0.0, 21.0), 5.3), ((0.0, 5.3), 16.4)],
+    "DP831": [((0.0, 8.4), 5.3), ((0.0, 32.0), 2.1), ((-32.0, 0.0), 2.1)],
+    "DP832": [((0.0, 32.0), 3.2), ((0.0, 32.0), 3.2), ((0.0, 5.3), 3.2)],
+}
+
 
 class DP800(HardwareDP800):
     """An in-memory supply using the same public API as the hardware driver.
@@ -435,6 +448,15 @@ class _VirtualResource(MessageBasedResource):
     def _bound(self, header: str, number: int, upper: bool) -> float:
         """Return approximate model-specific limits used by virtual queries."""
         voltage, current = self.ranges[number - 1]
+        voltage_limits, current_limit = _SETTABLE_LIMITS[self.base_model][number - 1]
+        if self.base_model == "DP811" and self.ranges[0][0] == 40.0:
+            voltage_limits, current_limit = _SETTABLE_LIMITS[self.base_model][1]
+        elif self.base_model == "DP813" and self.ranges[0][0] == 20.0:
+            voltage_limits, current_limit = _SETTABLE_LIMITS[self.base_model][1]
+        if header in (":VOLT", ":VOLT:TRIG"):
+            return voltage_limits[1 if upper else 0]
+        if header in (":CURR", ":CURR:TRIG"):
+            return current_limit if upper else 0.0
         if not upper:
             return (
                 voltage
@@ -656,18 +678,12 @@ class _VirtualResource(MessageBasedResource):
             if len(self.channels) != 1:
                 self._fail("Range is only available on single-channel models")
             if not query:
-                high = args[0] in ("HIGH", "P40V")
-                self.ranges[0] = (
-                    (40.0, 5.0)
-                    if self.base_model == "DP811" and high
-                    else (
-                        (20.0, 10.0)
-                        if self.base_model == "DP811"
-                        else (20.0, 10.0)
-                        if high
-                        else (8.0, 20.0)
-                    )
-                )
+                if self.base_model == "DP811":
+                    high = args[0] in ("HIGH", "P40V")
+                    self.ranges[0] = (40.0, 5.0) if high else (20.0, 10.0)
+                else:
+                    high = args[0] in ("HIGH", "P20V")
+                    self.ranges[0] = (20.0, 10.0) if high else (8.0, 20.0)
             return self._rating(1)
         if head == ":DISP:TEXT:CLE":
             self.values[":DISP:TEXT"] = '""'

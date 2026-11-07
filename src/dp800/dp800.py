@@ -319,6 +319,35 @@ class DP800:
     # --- Channel views ---
 
     @property
+    def available_channels(self) -> tuple[int, ...]:
+        """Discover physical channels from the connected instrument's identity.
+
+        Each access queries identity without caching it. Channel views remain
+        stable across reconnects, while this tuple describes the current model.
+
+        Returns
+        -------
+        channels : tuple[int, ...]
+            One-based physical channel numbers for the connected model.
+
+        Raises
+        ------
+        RuntimeError
+            The supply is disconnected.
+        ValueError
+            The identity is malformed or the model is unsupported.
+        """
+        identity = self.identity
+        fields = identity.split(",")
+        if len(fields) != 4 or not fields[1].strip():
+            raise ValueError(f"Invalid instrument identity: {identity!r}.")
+        model = fields[1].strip().upper()
+        count = _MODEL_CHANNELS.get(model.removesuffix("A"))
+        if count is None:
+            raise ValueError(f"Unsupported DP800 model: {model!r}.")
+        return tuple(range(1, count + 1))
+
+    @property
     def channels(self) -> Mapping[int, DP800Channel]:
         """Read-only mapping of read/write channel views for numbers 1 - 3.
 
@@ -333,6 +362,32 @@ class DP800:
             Channel views keyed by one-based channel numbers.
         """
         return MappingProxyType(self._channels)
+
+    def _get_channel_limits(
+        self, channel: int, quantity: Literal["VOLT", "CURR"]
+    ) -> tuple[float, float]:
+        """Query settable bounds for an available physical channel.
+
+        Parameters
+        ----------
+        channel : int
+            One-based channel number, validated against the connected model.
+        quantity : {'VOLT', 'CURR'}
+            Source quantity to query without changing the selected channel.
+
+        Returns
+        -------
+        limits : tuple[float, float]
+            Numerically ordered bounds, including for negative-voltage outputs.
+        """
+        available = self.available_channels
+        if channel not in available:
+            raise ValueError(
+                f"Channel {channel} is unavailable; available channels are {available}."
+            )
+        first = _number(self._query(f":SOUR{channel}:{quantity}? MIN"))
+        second = _number(self._query(f":SOUR{channel}:{quantity}? MAX"))
+        return min(first, second), max(first, second)
 
     # --- VISA I/O ---
 

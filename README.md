@@ -72,6 +72,14 @@ them while disconnected raises `RuntimeError`. Exiting the context manager
 disconnects and disables the model's physical outputs. Shutdown reads identity
 to choose those outputs, without retaining a channel count.
 
+Use `supply.available_channels` to discover the connected model's physical channel
+numbers as a tuple. `channel.voltage_limits` and `channel.current_limits` return
+`(minimum, maximum)` settable bounds in volts and amperes, queried from the
+instrument. On single-channel models these follow the selected output range.
+All three properties require a connection and perform fresh I/O; unsupported
+models raise `ValueError` instead of returning guessed capabilities. Limit
+queries also reject channels that do not exist on the connected model.
+
 Both drivers implement the complete command families described in the programming
 guide: analyzer, delay/timer, display, storage, monitor, presets, recording, status,
 communications and digital triggering. Scalar settings use properties; operations

@@ -136,6 +136,14 @@ enforces actual channel availability. Views survive reconnects and use the
 parent's current connection. Accessing channels or channel performs no I/O.
 Channel measured_* properties return floats; measure() preserves parent response
 types, including ALL response strings in both drivers.
+`available_channels` performs fresh identity discovery and returns physical
+channel numbers as a tuple for supported DP811/813/821/822/831/832 models and
+their A variants. Malformed identity and unsupported models raise ValueError.
+Channel `voltage_limits` and `current_limits` check this availability and query
+explicit source MIN/MAX bounds, returning numerical (minimum, maximum) tuples
+in volts/amperes. These properties require connection, are uncached, and follow
+the selected output range on single-channel models. They do not change channel
+selection or add per-operation validation to other channel APIs.
 Channel views also delegate output mode, remote sensing, OCP/OVP enable states,
 thresholds, alarms, and alarm-label clearing. Preserve model/channel restrictions
 documented by the parent driver, while leaving enforcement to the instrument.

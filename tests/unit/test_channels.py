@@ -8,6 +8,110 @@ from dp800 import DP800Channel, InstrumentError
 from tests.fakes import FakeResource
 
 
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("DP811", (1,)),
+        ("DP813", (1,)),
+        ("DP821", (1, 2)),
+        ("DP822", (1, 2)),
+        ("DP831", (1, 2, 3)),
+        ("DP832", (1, 2, 3)),
+    ],
+)
+@pytest.mark.parametrize("suffix", ["", "A"])
+def test_available_channels_discovers_model_without_changing_state(
+    fake_visa, model, expected, suffix
+):
+    supply, resource, manager = fake_visa
+    resource.responses["*IDN?"] = f"RIGOL, {model.lower()}{suffix},serial,version"
+    supply.connect("fake", resource_manager=manager)
+    assert supply.available_channels == expected
+    assert supply.available_channels == expected
+    assert resource.commands == ["*IDN?", "*IDN?"]
+    assert tuple(supply.channels) == (1, 2, 3)
+
+
+@pytest.mark.parametrize("model", ["DP999", "DP832B", "OTHER"])
+@pytest.mark.parametrize("property_name", ["voltage_limits", "current_limits"])
+def test_discovery_rejects_unsupported_models(fake_visa, model, property_name):
+    supply, resource, manager = fake_visa
+    resource.responses["*IDN?"] = f"RIGOL,{model},serial,version"
+    supply.connect("fake", resource_manager=manager)
+    with pytest.raises(ValueError, match=f"Unsupported DP800 model.*{model}"):
+        _ = supply.available_channels
+    with pytest.raises(ValueError, match=f"Unsupported DP800 model.*{model}"):
+        getattr(supply.channels[1], property_name)
+    assert resource.commands == ["*IDN?", "*IDN?"]
+
+
+@pytest.mark.parametrize("identity", ["", "RIGOL", "RIGOL,DP832,serial", "RIGOL,,s,v"])
+def test_discovery_rejects_malformed_identity(fake_visa, identity):
+    supply, resource, manager = fake_visa
+    resource.responses["*IDN?"] = identity
+    supply.connect("fake", resource_manager=manager)
+    with pytest.raises(ValueError, match="Invalid instrument identity"):
+        _ = supply.available_channels
+
+
+@pytest.mark.parametrize(
+    "property_name,quantity,model,channel,raw_min,raw_max,expected",
+    [
+        ("voltage_limits", "VOLT", "DP821", 2, "0.000V", "8.400V", (0.0, 8.4)),
+        ("current_limits", "CURR", "DP821", 2, "0.000A", "10.500A", (0.0, 10.5)),
+        ("voltage_limits", "VOLT", "DP831", 3, "0.000", "-32.000", (-32.0, 0.0)),
+    ],
+)
+def test_channel_limits_query_bounds_without_changing_selection(
+    fake_visa, property_name, quantity, model, channel, raw_min, raw_max, expected
+):
+    supply, resource, manager = fake_visa
+    resource.responses.update(
+        {
+            "*IDN?": f"RIGOL,{model}A,serial,version",
+            f":SOUR{channel}:{quantity}? MIN": raw_min,
+            f":SOUR{channel}:{quantity}? MAX": raw_max,
+        }
+    )
+    supply.connect("fake", resource_manager=manager)
+    assert getattr(supply.channels[channel], property_name) == expected
+    assert resource.commands == [
+        "*IDN?",
+        f":SOUR{channel}:{quantity}? MIN",
+        f":SOUR{channel}:{quantity}? MAX",
+    ]
+    resource.responses[f":SOUR{channel}:{quantity}? MAX"] = "1.25"
+    assert getattr(supply.channels[channel], property_name) == (0.0, 1.25)
+
+
+def test_channel_discovery_follows_reconnection(fake_visa):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    channel = supply.channels[3]
+    assert supply.available_channels == (1, 2, 3)
+    supply.disconnect()
+    replacement = FakeResource()
+    replacement.responses["*IDN?"] = "RIGOL,DP811A,serial,version"
+    manager.open_resource.return_value = replacement
+    supply.connect("another", resource_manager=manager)
+    assert supply.channels[3] is channel
+    assert supply.available_channels == (1,)
+    for property_name in ("voltage_limits", "current_limits"):
+        with pytest.raises(ValueError, match="Channel 3 is unavailable"):
+            getattr(channel, property_name)
+    assert replacement.commands == ["*IDN?", "*IDN?", "*IDN?"]
+
+
+def test_channel_discovery_requires_connection(fake_visa):
+    supply, resource, _ = fake_visa
+    with pytest.raises(RuntimeError, match="not connected"):
+        _ = supply.available_channels
+    for property_name in ("voltage_limits", "current_limits"):
+        with pytest.raises(RuntimeError, match="not connected"):
+            getattr(supply.channels[1], property_name)
+    assert resource.io_events == []
+
+
 class TestChannel:
     @pytest.fixture(autouse=True)
     def setup(self, fake_visa, caplog):
