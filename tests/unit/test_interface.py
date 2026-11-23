@@ -6,7 +6,7 @@ import pytest
 
 # Literal SCPI cases live beside the tests that exercise them.
 READ_PROPERTIES = {
-    "standard_event_enable_register": ("*ESE?", "10", 10),
+    "standard_event_enable_register": ("*ESE?", "20", 20),
     "status_byte_enable_register": ("*SRE?", "32", 32),
     "status_byte_register": ("*STB?", "16", 16),
     "power_on_status_clear_bit": ("*PSC?", "1", 1),
@@ -22,7 +22,7 @@ READ_PROPERTIES = {
     "delay_groups": (":DELAY:GROUP?", "12", 12),
     "trigger_coupling_channels": (
         ":INST:COUP?",
-        "CH1:30V/3A,CH2:30V/3A",
+        "CH1:30V/3A,CH2:30V/3A,",
         ["CH1:30V/3A", "CH2:30V/3A"],
     ),
     "selected_channel": (":INST:NSEL?", "2", 2),
@@ -30,7 +30,7 @@ READ_PROPERTIES = {
 }
 
 WRITE_PROPERTIES = {
-    "standard_event_enable_register": (10, "*ESE 10"),
+    "standard_event_enable_register": (20, "*ESE 20"),
     "status_byte_enable_register": (32, "*SRE 32"),
     "power_on_status_clear_bit": (1, "*PSC 1"),
     "delay_end_state": ("LAST", ":DELAY:ENDS LAST"),
@@ -118,6 +118,20 @@ def test_alternative_property_responses(connected, name, response, expected):
     command = READ_PROPERTIES[name][0]
     resource.responses[command] = response
     assert getattr(driver, name) == expected
+
+
+def test_coupling_normalizes_field_whitespace_and_trailing_empty_field(connected):
+    driver, resource = connected
+    resource.responses[":INST:COUP?"] = " CH1:30V/3A , CH2:30V/3A ,  "
+    assert driver.trigger_coupling_channels == ["CH1:30V/3A", "CH2:30V/3A"]
+
+
+@pytest.mark.parametrize("response", ["CH1:30V/3A,,CH2:30V/3A", ",CH1:30V/3A", "ALL,,"])
+def test_coupling_rejects_empty_middle_fields(connected, response):
+    driver, resource = connected
+    resource.responses[":INST:COUP?"] = response
+    with pytest.raises(ValueError, match="Invalid trigger coupling response"):
+        _ = driver.trigger_coupling_channels
 
 
 @pytest.mark.parametrize(
@@ -240,12 +254,37 @@ def test_apply_settings(connected, channel, current):
     assert resource.commands[-1] == command
 
 
-@pytest.mark.parametrize("channel", [None, 2])
-def test_apply_full_response(connected, channel):
+def test_apply_full_response(connected):
     driver, resource = connected
-    command = ":APPL?" + (f" CH{channel}" if channel else "")
-    resource.responses[command] = "CH2,30V/3A,1.2,0.1"
-    assert driver.get_apply(channel) == ("CH2", "30V/3A", 1.2, 0.1)
+    command = ":APPL? CH1"
+    resource.responses[command] = "CH1:30V/3A,3.12,0.342"
+    assert driver.get_apply(1) == ("CH1", "30V/3A", 3.12, 0.342)
+
+
+def test_apply_bare_query_returns_voltage_and_current(connected):
+    driver, resource = connected
+    resource.responses[":APPL?"] = "3.12,0.342"
+    assert driver.get_apply() == (3.12, 0.342)
+
+
+@pytest.mark.parametrize(
+    "channel,response",
+    [
+        (None, "3.12"),
+        (None, "CH1:30V/3A,3.12,0.342"),
+        (1, "3.12,0.342"),
+        (1, "CH1,,3.12,0.342"),
+        (1, "CH1,3.12,0.342"),
+        (1, "CH1:,3.12,0.342"),
+        (1, ":30V/3A,3.12,0.342"),
+    ],
+)
+def test_apply_rejects_malformed_response(connected, channel, response):
+    driver, resource = connected
+    command = ":APPL?" + (f" CH{channel}" if channel is not None else "")
+    resource.responses[command] = response
+    with pytest.raises(ValueError, match="Invalid APPLy response"):
+        driver.get_apply(channel)
 
 
 @pytest.mark.parametrize("func", ["VOLT", "CURR"])

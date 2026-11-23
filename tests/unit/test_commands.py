@@ -37,16 +37,22 @@ class TestCommands:
     def test_common_command_property_setters_and_validation(self):
         self.connect()
         for name, command, values in (
-            ("standard_event_enable_register", "*ESE", (0, 10, 255)),
+            ("standard_event_enable_register", "*ESE", (0, 1, 20, 189)),
             ("status_byte_enable_register", "*SRE", (0, 32, 255)),
             ("power_on_status_clear_bit", "*PSC", (0, 1)),
         ):
             for value in values:
                 setattr(self.driver, name, value)
                 assert self.resource.commands[-1] == f"{command} {value}"
-            if command != "*PSC":
+            if command == "*ESE":
+                invalid = (-1, 2, 64, 255, 256)
+            elif command != "*PSC":
+                invalid = (-1, 256)
+            else:
+                invalid = ()
+            if invalid:
                 before = list(self.resource.commands)
-                for value in (-1, 256):
+                for value in invalid:
                     with pytest.raises(ValueError):
                         setattr(self.driver, name, value)
                 assert self.resource.commands == before

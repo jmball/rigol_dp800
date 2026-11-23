@@ -8,14 +8,45 @@ from typing import Any, Callable, cast
 from unittest.mock import Mock
 
 import pytest
+import pyvisa
+import pyvisa.constants
 
+from tests.fakes import FakeResource
 from tests.hardware import conftest as hardware_fixtures
+from tests.hardware import test_instrument as hardware_tests
 from tests.hardware.support import HardwareConfig
 
 
 def fixture_function(fixture: object) -> Callable[..., Any]:
     """Get pytest's wrapped fixture function for direct lifecycle testing."""
     return unwrap(cast(Callable[..., Any], fixture))
+
+
+def test_invalid_query_closes_failed_session_before_cleanup(fake_visa):
+    driver, resource, manager = fake_visa
+    config = HardwareConfig.from_pytest(options())
+    driver.connect("fake", resource_manager=manager)
+    replacement = FakeResource()
+    manager.open_resource.return_value = replacement
+    original_query = resource.query
+    failed = False
+
+    def query(message, delay=None):
+        nonlocal failed
+        if message == ":SOUR4:VOLT?" or failed:
+            failed = True
+            raise pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_io)
+        return original_query(message, delay)
+
+    resource.query = query
+    hardware_tests.test_invalid_query_reports_device_or_transport_error(
+        driver, config, manager
+    )
+    assert resource.closed == 1
+    assert resource.commands == []  # No shutdown commands on the failed session.
+    assert driver._instr is replacement
+    assert replacement.commands == ["*IDN?"]
+    driver.disconnect()
 
 
 def options(**overrides):

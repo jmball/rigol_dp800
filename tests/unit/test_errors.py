@@ -23,8 +23,8 @@ class TestError:
     def connect(self):
         self.driver.connect("TCPIP::example::INSTR", resource_manager=self.manager)
 
-    def timeout_query(self):
-        original = pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout)
+    def failed_query(self, status):
+        original = pyvisa.errors.VisaIOError(status)
         query = self.resource.query
 
         def scripted_query(command):
@@ -58,12 +58,19 @@ class TestError:
         assert str(raised.value) == '-222,"Invalid channel"'
         assert self.resource.io_events[-3:] == [":MEAS?", ":SYST:ERR?", ":SYST:ERR?"]
 
-    def test_query_timeout_reports_errors_using_configured_visa_settings(self):
+    @pytest.mark.parametrize(
+        "status",
+        [
+            pyvisa.constants.StatusCode.error_timeout,
+            pyvisa.constants.StatusCode.error_io,
+        ],
+    )
+    def test_failed_query_reports_errors_using_configured_visa_settings(self, status):
         self.connect()
         self.resource.timeout = 1234
         self.resource.query_delay = 0.1
         self.resource.queued_errors = ['-222,"Invalid channel"']
-        original, query_patch = self.timeout_query()
+        original, query_patch = self.failed_query(status)
         with query_patch:
             with pytest.raises(InstrumentError) as raised:
                 self.driver.measure()
@@ -74,13 +81,23 @@ class TestError:
         assert self.resource.error_query_delays[-2:] == [None, None]
         assert self.resource.error_queries[-2:] == [1234, 1234]
 
-    def test_query_timeout_preserved_for_empty_malformed_or_failed_diagnostics(self):
+    @pytest.mark.parametrize(
+        "status",
+        [
+            pyvisa.constants.StatusCode.error_timeout,
+            pyvisa.constants.StatusCode.error_io,
+        ],
+    )
+    def test_failed_query_preserved_for_empty_malformed_or_failed_diagnostics(
+        self, status
+    ):
         for result in (
             '0,"No error"',
             "1.234",
             "0,unquoted",
             OSError("Disconnected"),
             pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout),
+            pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_io),
         ):
             self.reset()
             self.connect()
@@ -89,7 +106,7 @@ class TestError:
                 self.resource.diagnostic_error = result
             else:
                 self.resource.queued_errors = [result]
-            original, query_patch = self.timeout_query()
+            original, query_patch = self.failed_query(status)
             cause = OSError("Original low-level cause")
             original.__cause__ = cause
             with query_patch:
@@ -99,7 +116,7 @@ class TestError:
             assert raised.value.__cause__ is cause
             assert self.resource.timeout == 1234
 
-    def test_non_timeout_query_errors_do_not_run_diagnostics(self):
+    def test_connection_lost_does_not_run_diagnostics(self):
         self.connect()
         before = list(self.resource.error_queries)
         error = pyvisa.errors.VisaIOError(
@@ -146,9 +163,16 @@ class TestError:
             assert self.driver.get_errors() == [batch]
             assert self.driver.get_errors() == []
 
-    def test_error_query_timeout_does_not_recursively_check_errors(self):
+    @pytest.mark.parametrize(
+        "status",
+        [
+            pyvisa.constants.StatusCode.error_timeout,
+            pyvisa.constants.StatusCode.error_io,
+        ],
+    )
+    def test_error_query_failure_does_not_recursively_check_errors(self, status):
         self.connect()
-        error = pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_timeout)
+        error = pyvisa.errors.VisaIOError(status)
         self.resource.diagnostic_error = error
         before = len(self.resource.error_queries)
         with pytest.raises(pyvisa.errors.VisaIOError) as raised:

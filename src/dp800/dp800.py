@@ -416,8 +416,9 @@ class DP800:
     def _query(self, command: str, *, check_errors: bool = True) -> str:
         """Read a query response, then check the instrument error queue.
 
-        A VISA timeout triggers best-effort error diagnostics using the configured
-        PyVISA timeout. Instrument errors are chained from the original timeout.
+        A VISA timeout or I/O error triggers best-effort error diagnostics using
+        the configured PyVISA settings. Instrument errors are chained from the
+        original communication error.
         Empty, malformed, or failed diagnostics preserve the original exception.
         This recovery attempt does not guarantee response synchronization.
         Set check_errors=False for error-queue queries to prevent recursion in
@@ -441,9 +442,9 @@ class DP800:
         try:
             response = self._instr.query(command)
         except pyvisa.errors.VisaIOError as original:
-            if (
-                not check_errors
-                or original.error_code != pyvisa.constants.StatusCode.error_timeout
+            if not check_errors or original.error_code not in (
+                pyvisa.constants.StatusCode.error_timeout,
+                pyvisa.constants.StatusCode.error_io,
             ):
                 raise
             try:
@@ -656,7 +657,7 @@ class DP800:
         self,
         channel: int | None = None,
         function: Literal["CURR", "VOLT"] | None = None,
-    ) -> float | tuple[str, str, float, float]:
+    ) -> float | tuple[float, float] | tuple[str, str, float, float]:
         """Get the voltage and/or current of the selected channel.
 
         Parameters
@@ -664,24 +665,33 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, the currently selected channel will be used.
         function : 'CURR' or 'VOLT', optional
-            Function to query: current ('CURR') or voltage ('VOLT'). If both are
-            omitted the query will return the channel range and both the current and
-            voltage values.
+            Function to query: current ('CURR') or voltage ('VOLT'). Omit to read
+            both voltage and current.
 
         Returns
         -------
         resp : float or tuple
-            If both `channel` and `function` are specified, the set value of the
-            desired function is returned. If `function` is omitted, a tuple is returned
-            comprised of the currently selected channel, its rated values, the set
-            value of the voltage, and the set value of the current.
+            A scalar for a specified function, a pair of voltage and current for a
+            bare query, or a four item tuple for an explicit channel query.
         """
         if function is not None and channel is None:
             raise ValueError("Specify a channel when querying an APPLy function.")
         command = ":APPL?" + (f" CH{channel}" if channel is not None else "")
         if function is not None:
             return _number(self._query(command + "," + _token(function)))
-        ch, rating, voltage, current = _fields(self._query(command))
+        fields = _fields(self._query(command))
+        expected = 2 if channel is None else 3
+        if len(fields) != expected:
+            raise ValueError(
+                f"Invalid APPLy response: expected {expected} fields, got {len(fields)}."
+            )
+        if channel is None:
+            voltage, current = fields
+            return _number(voltage), _number(current)
+        channel_rating, voltage, current = fields
+        ch, separator, rating = channel_rating.partition(":")
+        if not separator or not ch or not rating:
+            raise ValueError("Invalid APPLy response: malformed channel rating.")
         return ch, rating, _number(voltage), _number(current)
 
     # --- DELAY commands ---
@@ -1034,7 +1044,7 @@ class DP800:
         Returns
         -------
         value : int
-            Register bitmask in the range 0 - 255; assign to enable bits.
+            Register value with reserved bits 1 and 6 clear.
         """
         value = int(self._query("*ESE?"))
 
@@ -1048,13 +1058,15 @@ class DP800:
         ----------
         value : int
             Decimal value of the enable register corresponding to the sum of binary
-            weights of the bits to be enabled, e.g. to enable bits 1 and 3 only would
-            require setting the value to 2^1 + 2^3 = 10. Must be in range 0 - 255.
+            weights of the bits to be enabled, e.g. to enable bits 2 and 4 only would
+            require setting the value to 2^2 + 2^4 = 20. Must be in the range 0 - 255,
+            with reserved bits 1 and 6 clear.
         """
-        if (value >= 0) & (value <= 255):
-            self._write(f"*ESE {value}")
-        else:
-            raise ValueError(f"Value: {value} is out of range. Must be in range 0-255.")
+        if not isinstance(value, int) or value < 0 or value > 255 or value & ~0xBD:
+            raise ValueError(
+                "ESE value must be 0-255 with reserved bits 1 and 6 clear."
+            )
+        self._write(f"*ESE {value}")
 
     def get_standard_event_register(self) -> int:
         """Get the standard event register value.
@@ -1282,10 +1294,15 @@ class DP800:
             If 'ALL' or 'NONE' that string is returned. Otherwise query returns a list
             where each element is a channel name and rating separated by a `:`.
         """
-        channels = self._query(":INST:COUP?").split(",")
-        if len(channels) == 1:
-            return channels[0]
-
+        channels = [
+            channel.strip() for channel in self._query(":INST:COUP?").split(",")
+        ]
+        if channels and channels[-1] == "":
+            channels.pop()
+        if not channels or any(not channel for channel in channels):
+            raise ValueError("Invalid trigger coupling response.")
+        if len(channels) == 1 and channels[0].upper() in ("ALL", "NONE"):
+            return channels[0].upper()
         return channels
 
     @trigger_coupling_channels.setter

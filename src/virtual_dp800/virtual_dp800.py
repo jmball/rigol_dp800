@@ -617,17 +617,26 @@ class _VirtualResource(MessageBasedResource):
             coupling = self.values[head]
             if coupling in ("ALL", "NONE"):
                 return coupling
-            return ",".join(
-                f"{item}:{self._rating(int(item[2:]))}" for item in coupling.split(",")
+            return (
+                ",".join(
+                    f"{item}:{self._rating(int(item[2:]))}"
+                    for item in coupling.split(",")
+                )
+                + ","
             )
         if head == ":APPL":
-            if args and args[0].startswith("CH"):
+            number = self.selected
+            state = self._channel(number)
+            explicit_channel = bool(args and args[0].startswith("CH"))
+            if explicit_channel:
                 number = int(args.pop(0)[2:])
                 state = self._channel(number)
             if query:
                 if args:
                     return state[":" + args[0]]
-                return f"CH{number},{self._rating(number)},{state[':VOLT']},{state[':CURR']}"
+                if not explicit_channel:
+                    return f"{state[':VOLT']},{state[':CURR']}"
+                return f"CH{number}:{self._rating(number)},{state[':VOLT']},{state[':CURR']}"
             for header, value in zip((":VOLT", ":CURR"), args):
                 state[header] = self._numeric(value, header, number)
             self.selected = number

@@ -458,6 +458,23 @@ def test_registers_and_key_locks(supply):
     assert supply.channels[1].questionable_enable_register == 8
 
 
+def test_apply_response_forms_and_register_reserved_bits(supply):
+    supply.set_apply(channel=1, voltage=3.12, current=0.342)
+    assert supply.get_apply() == (3.12, 0.342)
+    assert supply.get_apply(channel=1) == ("CH1", "30V/3A", 3.12, 0.342)
+    for value in (0, 1, 20, 189):
+        supply.standard_event_enable_register = value
+        assert supply.standard_event_enable_register == value
+    for value in (-1, 2, 64, 255, 256):
+        with pytest.raises(ValueError):
+            supply.standard_event_enable_register = value
+
+
+def test_virtual_coupling_trailing_wire_delimiter_is_normalized(supply):
+    supply.trigger_coupling_channels = ["CH1", "CH2"]
+    assert supply.trigger_coupling_channels == ["CH1:30V/3A", "CH2:30V/3A"]
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

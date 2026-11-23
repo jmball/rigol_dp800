@@ -57,9 +57,13 @@ def test_setpoints_and_apply(hardware, channel, bench_config):
             assert hardware.get_current(addressed) == pytest.approx(current, abs=0.01)
             hardware.set_apply(addressed, voltage, current)
             result = hardware.get_apply(addressed)
-            assert isinstance(result, tuple) and len(result) == 4
-            assert result[0] == f"CH{number}"
-            assert result[2:] == pytest.approx((voltage, current), abs=0.01)
+            assert isinstance(result, tuple)
+            if addressed is None:
+                assert result == pytest.approx((voltage, current), abs=0.01)
+            else:
+                assert len(result) == 4
+                assert result[0] == f"CH{number}"
+                assert result[2:] == pytest.approx((voltage, current), abs=0.01)
         for function, value in (("VOLT", voltage), ("CURR", current)):
             assert hardware.get_apply(number, function) == pytest.approx(
                 value, abs=0.01

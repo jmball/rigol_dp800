@@ -144,8 +144,10 @@ These guide variants share one public implementation:
 
 `set_apply()` accepts a channel selection, voltage, and current. Current requires
 a voltage, and at least a channel or voltage must be supplied. `get_apply()`
-returns a scalar for a channel/function query or a tuple containing the full
-response when no function is specified; specifying a function requires a channel.
+returns a scalar for a channel/function query, `(channel, rating, voltage, current)`
+when only a channel is specified, and `(voltage, current)` when called without
+arguments. Specifying a function requires a channel. The channel and rating are
+split from the instrument's combined field, such as `CH1:30V/3A`.
 The virtual driver uses the same public interface and response types as the
 hardware driver, including identity, options, and measurements.
 

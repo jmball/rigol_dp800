@@ -106,11 +106,12 @@ only the raw instrument responses, joined with newlines, without command names
 or reformatted error messages. Checks consume the queue and add communication
 round trips. A command may have executed even if its subsequent error check fails.
 
-When a query raises a VISA timeout, the driver attempts error diagnostics using
-the configured PyVISA timeout and query delay, without changing either setting.
-Reported instrument errors raise `InstrumentError` with the original timeout
+When a query raises a VISA timeout or `VI_ERROR_IO`, the driver attempts error
+diagnostics using the configured PyVISA timeout and query delay, without changing
+either setting.
+Reported instrument errors raise `InstrumentError` with the original VISA error
 as its cause. Empty, malformed, or failed diagnostics re-raise the original
-timeout. This fallback neither retries the command nor guarantees response
+VISA error. This fallback neither retries the command nor guarantees response
 synchronization: a late original response can interfere with diagnostics, and
 the caller may need to reconnect before continuing.
 
@@ -123,7 +124,7 @@ one query consumes a single entry or the whole queue, so reads continue until
 the zero-code response.
 
 All queries use the same connection guard in `_query()`. Error-queue queries
-pass `check_errors=False` to prevent recursive checks and timeout diagnostics.
+pass `check_errors=False` to prevent recursive checks and failure diagnostics.
 Successful normal queries still check the queue: receiving a valid response
 does not establish that no device or previously queued errors exist.
 
@@ -208,11 +209,12 @@ may be overwritten/deleted. These hardware cases have not yet been run on a real
 supply. See the interface reference for the virtual model's limits.
 
 The hardware suite includes invalid-channel write and query checks. The query
-case expects a VISA timeout followed by an `InstrumentError` from error-queue
-diagnostics. On the tested DP832 with firmware `00.01.16`, it instead receives
-`VI_ERROR_IO`; that error propagates without timeout diagnostics, and the case
-fails. Each such test gets its own connection to isolate potential response
-synchronization issues.
+case checks for an `InstrumentError` chained from a VISA timeout or `VI_ERROR_IO`,
+or the original VISA error when diagnostics cannot establish a device error.
+Any remaining errors that can be read are recorded before shutdown writes.
+When diagnostics leave the connection uncertain, the test explicitly
+closes it and reconnects for cleanup. Each such test gets its own connection to
+isolate potential response synchronization issues.
 
 Dedicated lifecycle tests exercise `disconnect()` and context-manager exits.
 Shutdown reads the model to disable only its physical channels; if identification

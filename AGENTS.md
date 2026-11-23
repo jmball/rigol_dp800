@@ -162,16 +162,16 @@ Reset is an explicit caller operation.
 Each successful write and query response is followed by direct error-queue
 reading through get_errors(). Nonzero codes raise InstrumentError containing
 only the raw instrument error responses joined with newlines. A query VISA
-timeout triggers best-effort diagnostics using unchanged resource timeout/delay
-settings.
-Instrument errors are chained from the original timeout; empty, malformed, or
+timeout or VI_ERROR_IO triggers best-effort diagnostics using unchanged resource
+timeout/delay settings.
+Instrument errors are chained from the original VISA error; empty, malformed, or
 failed diagnostics preserve it. No automatic retry or stream recovery occurs.
 get_errors() uses _query(check_errors=False) to disable both automatic checks
-and timeout diagnostics, and reads until the zero-code response. It returns raw
+and failure diagnostics, and reads until the zero-code response. It returns raw
 nonzero responses whole, including any batched messages; the virtual equivalent
 consumes its own in-memory error queue. Successful normal queries still monitor the queue, since
 a valid reply does not guarantee no pending device errors. Mock both normal and
-error-query responses, including error-query timeout recursion prevention.
+error-query responses, including timeout and I/O-error recursion prevention.
 Connecting twice raises until disconnect.
 Opening options and resource attributes are passed directly to PyVISA for
 validation and configuration. PyVISA handles cleanup when open_resource()

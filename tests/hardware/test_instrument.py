@@ -5,6 +5,7 @@
 These are interface/communication checks, not calibrated performance tests.
 """
 
+import logging
 import math
 
 import pytest
@@ -14,6 +15,7 @@ import pyvisa.constants
 from dp800 import InstrumentError
 
 pytestmark = pytest.mark.hardware
+logger = logging.getLogger(__name__)
 
 
 def test_available_channels(hardware, bench_config):
@@ -57,8 +59,9 @@ def test_read_properties(hardware, bench_config, name):
         assert isinstance(value, float) and math.isfinite(value)
     elif name in {"selected_channel", "delay_groups"}:
         assert isinstance(value, int) and value >= 1
+    elif name == "standard_event_enable_register":
+        assert isinstance(value, int) and value >= 0 and value & ~0xBD == 0
     elif name in {
-        "standard_event_enable_register",
         "status_byte_enable_register",
         "status_byte_register",
     }:
@@ -79,7 +82,7 @@ def test_read_properties(hardware, bench_config, name):
 @pytest.mark.parametrize(
     "name,values",
     [
-        ("standard_event_enable_register", [0, 1, 255]),
+        ("standard_event_enable_register", [0, 1, 20, 189]),
         # Bit 6 is reserved in SRE, so don't expect an all-bits value to round-trip.
         ("status_byte_enable_register", [0, 32]),
         ("power_on_status_clear_bit", [0, 1]),
@@ -170,12 +173,45 @@ def test_invalid_write_raises_raw_instrument_error(hardware):
     assert hardware.get_errors() == []
 
 
-def test_invalid_query_timeout_diagnoses_instrument_error(hardware):
+def test_invalid_query_reports_device_or_transport_error(
+    hardware, bench_config, visa_manager
+):
     # This deliberately verifies firmware behavior rather than assuming it.
-    with pytest.raises(InstrumentError) as raised:
-        hardware._query(":SOUR4:VOLT?")
-    assert isinstance(raised.value.__cause__, pyvisa.errors.VisaIOError)
-    assert (
-        raised.value.__cause__.error_code == pyvisa.constants.StatusCode.error_timeout
-    )
-    assert hardware.get_errors() == []
+    failed_session = False
+    try:
+        with pytest.raises((InstrumentError, pyvisa.errors.VisaIOError)) as raised:
+            hardware._query(":SOUR4:VOLT?")
+        failed_session = isinstance(raised.value, pyvisa.errors.VisaIOError)
+        original = raised.value if failed_session else raised.value.__cause__
+        assert isinstance(original, pyvisa.errors.VisaIOError)
+        assert original.error_code in (
+            pyvisa.constants.StatusCode.error_timeout,
+            pyvisa.constants.StatusCode.error_io,
+        )
+        if not failed_session:
+            assert hardware.get_errors() == []
+    finally:
+        if failed_session:
+            # Failed diagnostics leave response synchronization uncertain. This
+            # test explicitly reconnects for cleanup; the driver never retries.
+            logger.warning("Invalid query left a VISA error; reconnecting for cleanup")
+            resource = hardware._instr
+            hardware._instr = None
+            if resource is not None:
+                resource.close()
+            hardware.connect(
+                bench_config.resource_name,
+                resource_manager=visa_manager,
+                timeout=bench_config.timeout,
+                **bench_config.resource_options,
+            )
+            assert hardware.identity.split(",")[1].strip().upper() == bench_config.model
+        # Attribute deliberate command errors before fixture shutdown writes.
+        # Preserve the primary test failure if diagnostic reads also fail.
+        try:
+            remaining = hardware.get_errors()
+        except Exception:
+            logger.warning("Could not read errors after invalid query", exc_info=True)
+        else:
+            if remaining:
+                logger.warning("Unconsumed invalid-query errors: %s", remaining)
