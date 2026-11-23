@@ -166,9 +166,9 @@ trips. Hardware tests are skipped unless a resource and expected model are
 provided through CLI arguments:
 
 ```sh
-.venv/bin/python -m pytest tests/hardware -rs \
+uv run --extra test pytest tests/hardware -rs \
   --visa-resource 'TCPIP0::192.0.2.1::INSTR' \
-  --hardware-model DP832A --visa-backend @py --visa-timeout 5000
+  --hardware-model DP832A --visa-backend=@py --visa-timeout 5000
 ```
 
 Replace the address and model with your instrument. Configuration is validated
@@ -208,9 +208,11 @@ may be overwritten/deleted. These hardware cases have not yet been run on a real
 supply. See the interface reference for the virtual model's limits.
 
 The hardware suite includes invalid-channel write and query checks. The query
-case verifies that firmware times out and the error-queue fallback raises
-`InstrumentError`; hardware is required to establish that behavior. Each such
-test gets its own connection to isolate potential response synchronization issues.
+case expects a VISA timeout followed by an `InstrumentError` from error-queue
+diagnostics. On the tested DP832 with firmware `00.01.16`, it instead receives
+`VI_ERROR_IO`; that error propagates without timeout diagnostics, and the case
+fails. Each such test gets its own connection to isolate potential response
+synchronization issues.
 
 Dedicated lifecycle tests exercise `disconnect()` and context-manager exits.
 Shutdown reads the model to disable only its physical channels; if identification
