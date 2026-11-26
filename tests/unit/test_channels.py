@@ -4,7 +4,7 @@ from typing import cast
 
 import pytest
 
-from dp800 import DP800Channel, InstrumentError
+from dp800 import DP800Channel
 from tests.fakes import FakeResource
 
 
@@ -106,10 +106,101 @@ def test_channel_discovery_requires_connection(fake_visa):
     supply, resource, _ = fake_visa
     with pytest.raises(RuntimeError, match="not connected"):
         _ = supply.available_channels
-    for property_name in ("voltage_limits", "current_limits"):
-        with pytest.raises(RuntimeError, match="not connected"):
-            getattr(supply.channels[1], property_name)
-    assert resource.io_events == []
+    assert resource.commands == []
+
+
+@pytest.mark.parametrize("channel", [0, 4])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "measure",
+        "output",
+        "selected",
+        "apply",
+        "voltage",
+        "questionable",
+        "source_step",
+        "source_trigger",
+    ],
+)
+def test_invalid_channel_is_rejected_without_io(fake_visa, channel, operation):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    commands_before = list(resource.commands)
+    with pytest.raises(ValueError, match="range 1 - 3"):
+        if operation == "measure":
+            supply.measure(channel=channel)
+        elif operation == "output":
+            supply.get_output_enable(channel)
+        elif operation == "selected":
+            supply.selected_channel = channel
+        elif operation == "voltage":
+            supply.get_voltage(channel)
+        elif operation == "questionable":
+            supply.get_channel_questionable_condition(channel)
+        elif operation == "source_step":
+            supply.get_voltage_step(channel)
+        elif operation == "source_trigger":
+            supply.get_source_trigger("VOLT", channel)
+        else:
+            supply.set_apply(channel=channel, voltage=1.0)
+    assert resource.commands == commands_before
+
+
+@pytest.mark.parametrize("channel", [True, 1.5, "2"])
+def test_non_integer_channel_is_rejected_without_io(fake_visa, channel):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    commands_before = list(resource.commands)
+    with pytest.raises(TypeError, match="Channel must be an integer"):
+        supply.measure(channel=channel)
+    assert resource.commands == commands_before
+
+
+def test_model_unavailable_channel_fails_after_identity_only(fake_visa):
+    supply, resource, manager = fake_visa
+    resource.responses["*IDN?"] = "RIGOL,DP811,serial,version"
+    supply.connect("fake", resource_manager=manager)
+    with pytest.raises(ValueError, match="Channel 3 is unavailable"):
+        supply.measure(channel=3)
+    with pytest.raises(ValueError, match="Channel 3 is unavailable"):
+        supply.get_voltage(channel=3)
+    assert resource.commands == ["*IDN?", "*IDN?"]
+
+
+@pytest.mark.parametrize(
+    "setter,value",
+    [("trigger_coupling_channels", "CH4"), ("trigger_output_source", "CH0")],
+)
+def test_invalid_channel_name_fails_without_io(fake_visa, setter, value):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    commands_before = list(resource.commands)
+    with pytest.raises(ValueError, match="Invalid channel name"):
+        if setter == "trigger_coupling_channels":
+            supply.trigger_coupling_channels = value
+        else:
+            supply.set_trigger_output_source(value)
+    assert resource.commands == commands_before
+
+
+@pytest.mark.parametrize(
+    "value", ["NONE;:SOUR4:VOLT?", "CH1:30V/3A;:SOUR4:VOLT?", "CH1\n"]
+)
+def test_channel_name_cannot_inject_commands(fake_visa, value):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    with pytest.raises(ValueError):
+        supply.trigger_coupling_channels = value
+    assert resource.commands == []
+
+
+def test_channel_name_types_are_checked_before_io(fake_visa):
+    supply, resource, manager = fake_visa
+    supply.connect("fake", resource_manager=manager)
+    with pytest.raises(TypeError, match="Channel names must be strings"):
+        supply.trigger_coupling_channels = [None]
+    assert resource.commands == []
 
 
 class TestChannel:
@@ -165,7 +256,9 @@ class TestChannel:
         self.resource.responses[":OUTP? CH2"] = "OFF"
         channel.output_enabled = False
         assert not channel.output_enabled
-        assert self.resource.commands == [
+        assert [
+            command for command in self.resource.commands if command != "*IDN?"
+        ] == [
             ":SOUR2:VOLT 5.0",
             ":SOUR2:CURR 0.5",
             ":OUTP  CH2,ON",
@@ -225,11 +318,12 @@ class TestChannel:
         assert channel1.voltage == 3.3
         assert self.supply.channels[1] is channel1
         assert self.supply.channels[3] is channel3
-        with pytest.raises(InstrumentError) as raised:
+        with pytest.raises(ValueError, match="Channel 3 is unavailable"):
             channel3.voltage = 5.0
-        assert str(raised.value) == '-222,"Invalid channel"'
-        assert ":SOUR3:VOLT 5.0" in replacement.commands
-        assert "*IDN?" not in replacement.commands
+        assert ":SOUR3:VOLT 5.0" not in replacement.commands
+        assert [
+            command for command in replacement.commands if command.startswith(":SOUR")
+        ] == [":SOUR1:VOLT?"]
 
     def test_channel_io_propagates_transport_errors(self):
         channel = self.supply.channels[1]
@@ -239,9 +333,8 @@ class TestChannel:
             channel.voltage = 5.0
         assert raised.value is error
         self.resource.query_error = error
-        with pytest.raises(OSError) as raised:
+        with pytest.raises(RuntimeError, match="not connected"):
             channel.measured_voltage
-        assert raised.value is error
 
     def test_output_and_protection_properties_query_the_fixed_channel(self):
         channel = self.supply.channels[2]
@@ -263,13 +356,16 @@ class TestChannel:
                 self.resource.responses[command] = response
                 assert getattr(channel, name) == expected
                 assert getattr(channel, name) == expected
-                assert self.resource.commands[-2:] == [command, command]
+                assert [item for item in self.resource.commands if item == command][
+                    -2:
+                ] == [command, command]
                 error = OSError("Query failed")
                 self.resource.query_error = error
                 with pytest.raises(OSError) as raised:
                     getattr(channel, name)
                 assert raised.value is error
                 self.resource.query_error = None
+                self.connect()
         for name in ("output_mode", "ocp_tripped", "ovp_tripped"):
             with pytest.raises(AttributeError):
                 setattr(channel, name, None)
@@ -304,6 +400,7 @@ class TestChannel:
                     setattr(channel, name, value)
                 assert raised.value is error
                 self.resource.write_errors.clear()
+                self.connect()
         for name, command in (
             ("clear_ocp_label", ":OUTP:OCP:CLEAR CH2"),
             ("clear_ovp_label", ":OUTP:OVP:CLEAR CH2"),
@@ -316,7 +413,8 @@ class TestChannel:
                 getattr(channel, name)()
             assert raised.value is error
             self.resource.write_errors.clear()
-        assert self.resource.commands.count("*IDN?") == 0
+            self.connect()
+        assert self.resource.commands.count("*IDN?") > 0
         assert not any(
             (command.startswith(":INST") for command in self.resource.commands)
         )

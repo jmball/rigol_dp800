@@ -120,6 +120,7 @@ PROPERTIES = {
     ),
     "beeper_enabled": (":SYST:BEEP?", "ON", True, True, ":SYST:BEEP ON"),
     "brightness": (":SYST:BRIG?", "50", 50, 50, ":SYST:BRIG 50"),
+    "rgb_brightness": (":SYST:RGBB?", "47", 47, 47, ":SYST:RGBB 47"),
     "contrast": (":SYST:CONT?", "50", 50, 50, ":SYST:CONT 50"),
     "gpib_address": (":SYST:COMM:GPIB:ADDR?", "1", 1, 1, ":SYST:COMM:GPIB:ADDR 1"),
     "lan_autoip_enabled": (
@@ -663,6 +664,7 @@ METHODS = [
         (">V", 1.5),
     ),
     ("get_limit", ("brightness", "MAX"), {}, ":SYST:BRIG? MAX", "100", 100.0),
+    ("get_limit", ("rgb_brightness", "MIN"), {}, ":SYST:RGBB? MIN", "1", 1.0),
 ]
 
 
@@ -760,6 +762,8 @@ def test_unexpected_boolean_does_not_silently_become_false(raw):
         lambda d: d.save_file("RSF", "D:\\file.RTF"),
         lambda d: d.set_apply(current=0.1),
         lambda d: d.set_apply(),
+        # Guide setting codes only; query names such as English are not codes.
+        lambda d: setattr(d, "language", "English"),
     ],
 )
 def test_invalid_configuration_sends_no_command(connected, operation):

@@ -8,45 +8,15 @@ from typing import Any, Callable, cast
 from unittest.mock import Mock
 
 import pytest
-import pyvisa
-import pyvisa.constants
 
 from tests.fakes import FakeResource
 from tests.hardware import conftest as hardware_fixtures
-from tests.hardware import test_instrument as hardware_tests
 from tests.hardware.support import HardwareConfig
 
 
 def fixture_function(fixture: object) -> Callable[..., Any]:
     """Get pytest's wrapped fixture function for direct lifecycle testing."""
     return unwrap(cast(Callable[..., Any], fixture))
-
-
-def test_invalid_query_closes_failed_session_before_cleanup(fake_visa):
-    driver, resource, manager = fake_visa
-    config = HardwareConfig.from_pytest(options())
-    driver.connect("fake", resource_manager=manager)
-    replacement = FakeResource()
-    manager.open_resource.return_value = replacement
-    original_query = resource.query
-    failed = False
-
-    def query(message, delay=None):
-        nonlocal failed
-        if message == ":SOUR4:VOLT?" or failed:
-            failed = True
-            raise pyvisa.errors.VisaIOError(pyvisa.constants.StatusCode.error_io)
-        return original_query(message, delay)
-
-    resource.query = query
-    hardware_tests.test_invalid_query_reports_device_or_transport_error(
-        driver, config, manager
-    )
-    assert resource.closed == 1
-    assert resource.commands == []  # No shutdown commands on the failed session.
-    assert driver._instr is replacement
-    assert replacement.commands == ["*IDN?"]
-    driver.disconnect()
 
 
 def options(**overrides):
@@ -83,7 +53,75 @@ def options(**overrides):
 def test_model_applicability(model, count, sense):
     config = HardwareConfig.from_pytest(options(**{"--hardware-model": model}))
     assert config.channels == config.physical_channels == tuple(range(1, count + 1))
-    assert config.sense_channels == sense
+    assert config.supported_channels("remote_sense") == sense
+    assert config.supports("multi_channel") is (count > 1)
+    assert config.supports("single_channel") is (count == 1)
+
+
+@pytest.mark.parametrize(
+    "model,channels,tracking",
+    [("DP832", None, (1, 2)), ("DP831A", None, (2, 3)), ("DP832", "3", ())],
+)
+def test_channel_restricted_features(model, channels, tracking):
+    config = HardwareConfig.from_pytest(
+        options(**{"--hardware-model": model, "--hardware-channels": channels})
+    )
+    assert config.supported_channels("tracking") == tracking
+    assert config.supports("tracking")  # The model supports it on some channel.
+    assert not config.supports("tracking", 3 if model == "DP832" else 1)
+
+
+def support_request(config, markers, channel=None, supply=None):
+    node = Mock()
+    node.iter_markers.side_effect = lambda name: [
+        Mock(args=args) for kind, args in markers if kind == name
+    ]
+    node.callspec = Mock(params={"channel_number": channel} if channel else {})
+    request = Mock(node=node)
+    request.getfixturevalue.return_value = supply
+    return request, Mock(_dp800_hardware=config)
+
+
+SUPPORT_FIXTURE = fixture_function(hardware_fixtures.model_and_option_support)
+
+
+@pytest.mark.parametrize(
+    "markers,channel,skipped",
+    [
+        ([("supported_on", ("multi_channel",))], None, False),
+        ([("supported_on", ("single_channel",))], None, True),
+        ([("supported_on", ("tracking",))], 2, False),
+        ([("supported_on", ("tracking",))], 3, True),
+        ([("supported_on", ("remote_sense",))], 1, True),
+    ],
+)
+def test_supported_on_marker_skips_without_io(markers, channel, skipped):
+    config = HardwareConfig.from_pytest(options())
+    request, pytestconfig = support_request(config, markers, channel)
+    if skipped:
+        with pytest.raises(pytest.skip.Exception, match="not supported on DP832"):
+            SUPPORT_FIXTURE(request, pytestconfig)
+    else:
+        SUPPORT_FIXTURE(request, pytestconfig)
+    request.getfixturevalue.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "installed,skipped",
+    [("0,DP8-ANALYZER,DP8-MONITOR,0,0,DP8-TRIGGER", False), ("0,0,0,0,0,0", True)],
+)
+def test_requires_option_marker_reads_installed_options(installed, skipped):
+    config = HardwareConfig.from_pytest(options())
+    supply = Mock(option_installation_status=installed)
+    request, pytestconfig = support_request(
+        config, [("requires_option", ("DP8-MONITOR",))], supply=supply
+    )
+    if skipped:
+        with pytest.raises(pytest.skip.Exception, match="DP8-MONITOR"):
+            SUPPORT_FIXTURE(request, pytestconfig)
+    else:
+        SUPPORT_FIXTURE(request, pytestconfig)
+    request.getfixturevalue.assert_called_once_with("hardware")
     assert config.allow_output is config.trigger is config.reset is False
 
 
@@ -174,12 +212,61 @@ def test_harness_cleanup_only_addresses_physical_channels(
     resource.commands.clear()
     with pytest.raises(StopIteration):
         next(generator)
-    assert resource.commands == [
-        f":OUTP  CH{number},OFF" for number in config.physical_channels
-    ] + [":SYST:KLOC:STAT OFF", ":SYST:LOC"]
-    assert driver._instr is None and resource.closed == 1
+    assert resource.commands == safe_state_commands(config) + [
+        ":SYST:KLOC:STAT OFF",
+        ":SYST:LOC",
+    ]
+    assert not driver.connected and resource.closed == 1
     # Its own fixture retains responsibility for closing the manager.
     manager.close.assert_not_called()
+
+
+def safe_state_commands(config):
+    # Each explicitly addressed channel operation first checks the model identity.
+    return [
+        command
+        for number in config.physical_channels
+        for operation in (
+            f":OUTP  CH{number},OFF",
+            f":SOUR{number}:VOLT 0",
+            f":SOUR{number}:CURR 0",
+        )
+        for command in ("*IDN?", operation)
+    ]
+
+
+def test_harness_reconnects_to_restore_safe_state(fake_visa, monkeypatch):
+    driver, resource, manager = fake_visa
+    config = HardwareConfig.from_pytest(options())
+    monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
+    generator = fixture_function(hardware_fixtures.hardware)(config, manager)
+    next(generator)
+    driver.disconnect()  # As lifecycle tests leave the fixture's driver.
+    replacement = FakeResource()
+    manager.open_resource.return_value = replacement
+    with pytest.raises(StopIteration):
+        next(generator)
+    assert replacement.commands == ["*IDN?"] + safe_state_commands(config) + [
+        ":SYST:KLOC:STAT OFF",
+        ":SYST:LOC",
+    ]
+    assert not driver.connected and replacement.closed == 1
+
+
+def test_harness_reconnect_does_not_change_unverified_model(fake_visa, monkeypatch):
+    driver, resource, manager = fake_visa
+    config = HardwareConfig.from_pytest(options())
+    monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
+    generator = fixture_function(hardware_fixtures.hardware)(config, manager)
+    next(generator)
+    driver.disconnect()
+    replacement = FakeResource()
+    replacement.responses["*IDN?"] = "RIGOL,DP811,serial,version"
+    manager.open_resource.return_value = replacement
+    with pytest.raises(AssertionError, match="Connected model"):
+        next(generator)
+    assert replacement.commands == ["*IDN?"]
+    assert not driver.connected and replacement.closed == 1
 
 
 def test_harness_checks_identity_before_changing_outputs(fake_visa, monkeypatch):
@@ -190,10 +277,10 @@ def test_harness_checks_identity_before_changing_outputs(fake_visa, monkeypatch)
     with pytest.raises(AssertionError, match="Connected model"):
         next(generator)
     assert resource.commands == ["*IDN?"]
-    assert resource.closed == 1 and driver._instr is None
+    assert resource.closed == 1 and not driver.connected
 
 
-def test_harness_attempts_remaining_cleanup_after_failure(fake_visa, monkeypatch):
+def test_harness_stops_cleanup_after_transport_failure(fake_visa, monkeypatch):
     driver, resource, manager = fake_visa
     config = HardwareConfig.from_pytest(options())
     monkeypatch.setattr(hardware_fixtures, "DP800", lambda: driver)
@@ -205,8 +292,11 @@ def test_harness_attempts_remaining_cleanup_after_failure(fake_visa, monkeypatch
     with pytest.raises(OSError) as raised:
         next(generator)
     assert raised.value is failure
-    assert ":OUTP  CH3,OFF" in resource.commands and ":SYST:LOC" in resource.commands
-    assert resource.closed == 1 and driver._instr is None
+    assert (
+        ":OUTP  CH3,OFF" not in resource.commands
+        and ":SYST:LOC" not in resource.commands
+    )
+    assert resource.closed == 1 and not driver.connected
 
 
 @pytest.mark.parametrize("backend", [None, "@py"])

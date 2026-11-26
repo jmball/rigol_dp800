@@ -33,6 +33,11 @@ class TestCommands:
             with pytest.raises(pyvisa.errors.VisaIOError) as raised:
                 operation(command)
             assert raised.value is error
+            self.resource.write_errors.clear()
+            self.resource.query_error = None
+            self.driver.connect("TCPIP::example::INSTR", resource_manager=self.manager)
+            self.resource.write_errors["*CLS"] = error
+            self.resource.query_error = error
 
     def test_common_command_property_setters_and_validation(self):
         self.connect()
@@ -74,7 +79,7 @@ class TestCommands:
         self.driver.selected_channel = 2
         self.driver.set_voltage(5.0)
         self.driver.set_voltage(3.0, channel=1)
-        assert self.resource.commands[-3:] == [
+        assert [item for item in self.resource.commands if item != "*IDN?"][-3:] == [
             ":INST CH2",
             ":VOLT 5.0",
             ":SOUR1:VOLT 3.0",

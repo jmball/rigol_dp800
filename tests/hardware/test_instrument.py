@@ -5,17 +5,13 @@
 These are interface/communication checks, not calibrated performance tests.
 """
 
-import logging
 import math
 
 import pytest
-import pyvisa
-import pyvisa.constants
 
 from dp800 import InstrumentError
 
 pytestmark = pytest.mark.hardware
-logger = logging.getLogger(__name__)
 
 
 def test_available_channels(hardware, bench_config):
@@ -34,19 +30,16 @@ READ_ONLY_PROPERTIES = (
     "temperature_test_result",
     "delay_end_state",
     "delay_groups",
-    "trigger_coupling_channels",
-    "selected_channel",
+    pytest.param(
+        "trigger_coupling_channels", marks=pytest.mark.supported_on("multi_channel")
+    ),
+    pytest.param("selected_channel", marks=pytest.mark.supported_on("multi_channel")),
     "keylock_enabled",
 )
 
 
 @pytest.mark.parametrize("name", READ_ONLY_PROPERTIES)
 def test_read_properties(hardware, bench_config, name):
-    if (
-        name in {"selected_channel", "trigger_coupling_channels"}
-        and len(bench_config.physical_channels) == 1
-    ):
-        pytest.skip("multi-channel command")
     value = getattr(hardware, name)
     if name == "identity":
         assert isinstance(value, str)
@@ -101,9 +94,8 @@ def test_property_round_trips(hardware, name, values):
         setattr(hardware, name, original)
 
 
+@pytest.mark.supported_on("multi_channel")
 def test_channel_selection_and_coupling(hardware, bench_config):
-    if len(bench_config.physical_channels) == 1:
-        pytest.skip("multi-channel commands")
     selected, coupling = hardware.selected_channel, hardware.trigger_coupling_channels
     try:
         for number in bench_config.channels:
@@ -157,61 +149,53 @@ def test_common_commands_and_modes(hardware):
     assert hardware.get_standard_event_register() == 0
 
 
-def test_error_queue_is_consumed(hardware):
-    # Raw writes deliberately avoid the automatic consuming check.
-    hardware._instr.write(":DP800_TEST_INVALID_COMMAND")
-    errors = hardware.get_errors()
-    assert errors
-    assert all(int(response.partition(",")[0]) != 0 for response in errors)
-    assert hardware.get_errors() == []
-
-
-def test_invalid_write_raises_raw_instrument_error(hardware):
-    with pytest.raises(InstrumentError) as raised:
-        hardware._write(":SOUR4:VOLT 1")
-    assert int(str(raised.value).partition(",")[0]) != 0
-    assert hardware.get_errors() == []
-
-
-def test_invalid_query_reports_device_or_transport_error(
-    hardware, bench_config, visa_manager
-):
-    # This deliberately verifies firmware behavior rather than assuming it.
-    failed_session = False
+def test_rejected_setting_raises_and_consumes_instrument_error(hardware):
+    # The guide's brightness range is 1-100. An out-of-range display setting
+    # provokes a device error through the public API without affecting outputs.
+    original = hardware.brightness
     try:
-        with pytest.raises((InstrumentError, pyvisa.errors.VisaIOError)) as raised:
-            hardware._query(":SOUR4:VOLT?")
-        failed_session = isinstance(raised.value, pyvisa.errors.VisaIOError)
-        original = raised.value if failed_session else raised.value.__cause__
-        assert isinstance(original, pyvisa.errors.VisaIOError)
-        assert original.error_code in (
-            pyvisa.constants.StatusCode.error_timeout,
-            pyvisa.constants.StatusCode.error_io,
-        )
-        if not failed_session:
-            assert hardware.get_errors() == []
+        with pytest.raises(InstrumentError) as raised:
+            hardware.brightness = 101
+        responses = str(raised.value).split("\n")
+        assert all(int(response.partition(",")[0]) != 0 for response in responses)
+        # The automatic check consumed every queued entry.
+        assert hardware.get_errors() == []
     finally:
-        if failed_session:
-            # Failed diagnostics leave response synchronization uncertain. This
-            # test explicitly reconnects for cleanup; the driver never retries.
-            logger.warning("Invalid query left a VISA error; reconnecting for cleanup")
-            resource = hardware._instr
-            hardware._instr = None
-            if resource is not None:
-                resource.close()
-            hardware.connect(
-                bench_config.resource_name,
-                resource_manager=visa_manager,
-                timeout=bench_config.timeout,
-                **bench_config.resource_options,
-            )
-            assert hardware.identity.split(",")[1].strip().upper() == bench_config.model
-        # Attribute deliberate command errors before fixture shutdown writes.
-        # Preserve the primary test failure if diagnostic reads also fail.
-        try:
-            remaining = hardware.get_errors()
-        except Exception:
-            logger.warning("Could not read errors after invalid query", exc_info=True)
-        else:
-            if remaining:
-                logger.warning("Unconsumed invalid-query errors: %s", remaining)
+        hardware.brightness = original
+
+
+def test_invalid_channel_is_rejected_without_disrupting_communication(
+    hardware, bench_config
+):
+    invalid = max(bench_config.physical_channels) + 1
+    with pytest.raises(ValueError, match="Channel"):
+        hardware.get_voltage(channel=invalid)
+    with pytest.raises(ValueError, match="Channel"):
+        hardware.set_voltage(1.0, channel=invalid)
+    assert hardware.identity.split(",")[1].strip().upper() == bench_config.model
+    assert hardware.get_errors() == []
+
+
+# Guide range selectors and the rated range each reports, per single-channel model.
+RANGES = {
+    "DP811": {"LOW": "20V/10A", "HIGH": "40V/5A", "P20V": "20V/10A", "P40V": "40V/5A"},
+    "DP813": {"LOW": "8V/20A", "HIGH": "20V/10A", "P8V": "8V/20A", "P20V": "20V/10A"},
+}
+
+
+@pytest.mark.supported_on("single_channel")
+def test_output_range(hardware, bench_config):
+    ranges = RANGES[bench_config.base_model]
+    original = hardware.output_range
+    try:
+        for selector, rating in ranges.items():
+            hardware.output_range = selector
+            assert hardware.output_range == rating
+    finally:
+        hardware.output_range = "LOW" if original == ranges["LOW"] else "HIGH"
+    assert hardware.output_range == original
+
+
+@pytest.mark.supported_on("single_channel")
+def test_questionable_condition(hardware):
+    assert hardware.questionable_condition >= 0

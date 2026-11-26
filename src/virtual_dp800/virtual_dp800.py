@@ -24,6 +24,7 @@ from dp800.dp800 import (
     DP800 as HardwareDP800,
 )
 from dp800.dp800 import (
+    LANGUAGE_NAMES,
     InstrumentError,
     _fields,
     _protocol_settings,
@@ -67,6 +68,7 @@ _DEFAULTS: dict[str, str] = {
     ":STAT:QUES:INST:ENAB": "0",
     ":SYST:BEEP": "ON",
     ":SYST:BRIG": "50",
+    ":SYST:RGBB": "50",
     ":SYST:CONT": "50",
     ":SYST:COMM:GPIB:ADDR": "1",
     ":SYST:COMM:LAN:AUTO": "ON",
@@ -109,6 +111,14 @@ _DEFAULTS: dict[str, str] = {
     ":TIME:TEMP:WIDT": "1",
     ":TRIG:SOUR": "BUS",
     ":TRIG:DEL": "0",
+}
+# Brightness, RGB brightness and contrast are integers from 1 to 100 percent.
+_DISPLAY_LEVELS = (":SYST:BRIG", ":SYST:RGBB", ":SYST:CONT")
+
+# Single-channel (name, (volts, amps)) selectors for range 1 (LOW) and 2 (HIGH).
+_RANGE_SELECTORS = {
+    "DP811": (("P20V", (20.0, 10.0)), ("P40V", (40.0, 5.0))),
+    "DP813": (("P8V", (8.0, 20.0)), ("P20V", (20.0, 10.0))),
 }
 _RANGES = {
     "DP811": [(20.0, 10.0)],
@@ -175,11 +185,6 @@ class DP800(HardwareDP800):
             raise ValueError("Invalid serial number.")
         self._automatic_error_checks = check_errors
         self._virtual = _VirtualResource(model.upper(), serial_number, load_resistance)
-
-    @property
-    def _connected(self) -> bool:
-        """Whether this virtual driver currently has a connection."""
-        return self._instr is not None
 
     def connect(
         self,
@@ -457,6 +462,8 @@ class _VirtualResource(MessageBasedResource):
             return voltage_limits[1 if upper else 0]
         if header in (":CURR", ":CURR:TRIG"):
             return current_limit if upper else 0.0
+        if header in _DISPLAY_LEVELS:
+            return 100.0 if upper else 1.0
         if not upper:
             return (
                 voltage
@@ -469,8 +476,6 @@ class _VirtualResource(MessageBasedResource):
             return max(0.0, voltage * (1.1 if "OVP" in header else 1))
         if header.startswith(":MONI:POWER"):
             return abs(voltage * current)
-        if header in (":SYST:BRIG", ":SYST:CONT"):
-            return 100.0
         if header == ":TRIG:DEL":
             return 3600.0
         return 99999.0
@@ -491,7 +496,7 @@ class _VirtualResource(MessageBasedResource):
         result = float(value)
         if not math.isfinite(result):
             self._fail("Invalid numeric value")
-        if header in (":VOLT", ":CURR", ":VOLT:TRIG", ":CURR:TRIG"):
+        if header in (":VOLT", ":CURR", ":VOLT:TRIG", ":CURR:TRIG", *_DISPLAY_LEVELS):
             low, high = (
                 self._bound(header, number, False),
                 self._bound(header, number, True),
@@ -687,12 +692,15 @@ class _VirtualResource(MessageBasedResource):
             if len(self.channels) != 1:
                 self._fail("Range is only available on single-channel models")
             if not query:
-                if self.base_model == "DP811":
-                    high = args[0] in ("HIGH", "P40V")
-                    self.ranges[0] = (40.0, 5.0) if high else (20.0, 10.0)
+                # Guide range selectors: LOW/HIGH or the model's rated names.
+                low, high = _RANGE_SELECTORS[self.base_model]
+                selector = args[0] if args else ""
+                if selector in ("LOW", low[0]):
+                    self.ranges[0] = low[1]
+                elif selector in ("HIGH", high[0]):
+                    self.ranges[0] = high[1]
                 else:
-                    high = args[0] in ("HIGH", "P20V")
-                    self.ranges[0] = (20.0, 10.0) if high else (8.0, 20.0)
+                    self._fail("Invalid range for this model")
             return self._rating(1)
         if head == ":DISP:TEXT:CLE":
             self.values[":DISP:TEXT"] = '""'
@@ -803,12 +811,12 @@ class _VirtualResource(MessageBasedResource):
             ):
                 values[head] = self._numeric(args[0], head, number)
             else:
-                values[head] = ",".join(args)
+                # Validate before storing so a rejected setting is not applied.
+                value = ",".join(args)
                 if head in (":TIME:CYCLE", ":DELAY:CYCLE") and args == ["N"]:
-                    values[head] = "N,1"
+                    value = "N,1"
                 if head in (
-                    ":SYST:BRIG",
-                    ":SYST:CONT",
+                    *_DISPLAY_LEVELS,
                     ":MONI:VOLT",
                     ":MONI:CURR",
                     ":MONI:POWER",
@@ -816,23 +824,16 @@ class _VirtualResource(MessageBasedResource):
                     ":TIME:TEMP:MINV",
                     ":TRIG:DEL",
                 ):
-                    values[head] = self._numeric(args[0], head, number)
-                    if head in (":SYST:BRIG", ":SYST:CONT"):
-                        values[head] = str(int(float(values[head])))
+                    value = self._numeric(args[0], head, number)
+                    if head in _DISPLAY_LEVELS:
+                        value = str(int(float(value)))
                 if head == ":SYST:LANG:TYPE":
-                    values[head] = {
-                        "EN": "English",
-                        "CH": "Chinese",
-                        "JAP": "Japanese",
-                        "KOR": "Korean",
-                        "GER": "German",
-                        "POR": "Portuguese",
-                        "POL": "Polish",
-                        "CHT": "Traditional Chinese",
-                        "RUS": "Russian",
-                    }.get(args[0], args[0])
+                    if args[0] not in LANGUAGE_NAMES:
+                        self._fail("Invalid language")
+                    value = LANGUAGE_NAMES[args[0]]
                 if head == ":SYST:POWE" and args[0] == "DEF":
-                    values[head] = "DEFAULT"
+                    value = "DEFAULT"
+                values[head] = value
             if head in (
                 ":VOLT",
                 ":CURR",
@@ -996,7 +997,16 @@ class _VirtualResource(MessageBasedResource):
         if head == ":MMEM:MDIR":
             self.directories.add(path)
         elif head == ":MMEM:DEL":
-            del self.external[path]
+            # The guide permits deleting files or empty folders.
+            if path in self.directories:
+                if any(
+                    ntpath.dirname(item) == path
+                    for item in set(self.external) | self.directories
+                ):
+                    self._fail("Directory is not empty")
+                self.directories.remove(path)
+            else:
+                del self.external[path]
         elif head == ":MMEM:LOAD":
             self._restore(self.external[path])
         elif head == ":MMEM:STOR":

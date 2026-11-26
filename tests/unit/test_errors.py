@@ -115,6 +115,11 @@ class TestError:
             assert raised.value is original
             assert raised.value.__cause__ is cause
             assert self.resource.timeout == 1234
+            assert not self.driver.connected and self.resource.closed == 1
+            before = list(self.resource.io_events)
+            with pytest.raises(RuntimeError, match="not connected"):
+                self.driver.get_errors()
+            assert self.resource.io_events == before
 
     def test_connection_lost_does_not_run_diagnostics(self):
         self.connect()
@@ -127,6 +132,7 @@ class TestError:
             self.driver.measure()
         assert raised.value is error
         assert self.resource.error_queries == before
+        assert not self.driver.connected and self.resource.closed == 1
 
     def test_failed_transport_write_is_not_followed_by_diagnostics(self):
         self.connect()
@@ -137,6 +143,7 @@ class TestError:
             self.driver.clear_event_registers()
         assert raised.value is error
         assert self.resource.error_queries == before
+        assert not self.driver.connected and self.resource.closed == 1
 
     def test_get_errors_returns_raw_responses_and_consumes_the_queue(self):
         self.connect()
@@ -179,6 +186,21 @@ class TestError:
             self.driver.get_errors()
         assert raised.value is error
         assert len(self.resource.error_queries) == before + 1
+        assert not self.driver.connected and self.resource.closed == 1
+
+    def test_query_close_failure_preserves_the_original_exception(self):
+        self.connect()
+        original = OSError("Read failed")
+        self.resource.query_error = original
+        self.resource.close_error = OSError("Close failed")
+        with pytest.raises(OSError) as raised:
+            self.driver.measure()
+        assert raised.value is original
+        assert not self.driver.connected and self.resource.closed == 1
+        assert any(
+            "Failed to close resource" in record.getMessage()
+            for record in self.caplog.records
+        )
 
     def test_query_flag_disables_checks_without_consuming_queued_errors(self):
         self.connect()
@@ -218,4 +240,4 @@ class TestError:
         assert ":OUTP  CH3,OFF" in self.resource.commands
         assert ":SYST:LOC" in self.resource.commands
         assert self.resource.closed == 1
-        assert self.driver._instr is None
+        assert not self.driver.connected

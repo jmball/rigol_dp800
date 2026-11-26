@@ -17,7 +17,7 @@ def test_disconnect_reconnect_and_channel_lifetime(
     try:
         hardware.disconnect()
     finally:
-        assert hardware._instr is None
+        assert not hardware.connected
     hardware.disconnect()
     with pytest.raises(RuntimeError, match="not connected"):
         _ = channel.voltage
@@ -51,7 +51,7 @@ def test_context_manager_exit(hardware, exceptional):
         else:
             use_context()
     finally:
-        assert hardware._instr is None
+        assert not hardware.connected
 
 
 def test_reset(hardware, bench_config):
@@ -106,31 +106,27 @@ def test_bus_trigger(hardware, bench_config):
         )
     number = bench_config.channels[0]
     channel = hardware.channels[number]
-    selected = (
-        hardware.selected_channel if len(bench_config.physical_channels) > 1 else None
-    )
-    coupling = hardware.trigger_coupling_channels if selected is not None else None
-    settings = {}
+    multi_channel = bench_config.supports("multi_channel")
+    selected = hardware.selected_channel if multi_channel else None
+    coupling = hardware.trigger_coupling_channels if multi_channel else None
+    source, delay = hardware.trigger_source, hardware.trigger_delay
+    levels = {
+        func: hardware.get_source_trigger(func, number) for func in ("VOLT", "CURR")
+    }
     voltage, current = channel.voltage, channel.current
-    sense = channel.sense_enabled if number in bench_config.sense_channels else None
+    sense = (
+        channel.sense_enabled if bench_config.supports("remote_sense", number) else None
+    )
     try:
-        if selected is not None:
+        if multi_channel:
             hardware.selected_channel = number
             hardware.trigger_coupling_channels = "NONE"
-        # These setup commands have no implemented public driver equivalent.
-        for command in (
-            ":TRIG:SOUR",
-            ":TRIG:DEL",
-            f":SOUR{number}:VOLT:TRIG",
-            f":SOUR{number}:CURR:TRIG",
-        ):
-            settings[command] = hardware._query(f"{command}?")
-        hardware._write(":TRIG:SOUR BUS")
-        hardware._write(":TRIG:DEL 0")
-        hardware._write(
-            f":SOUR{number}:VOLT:TRIG {bench_config.channel_voltage(number)}"
+        hardware.trigger_source = "BUS"
+        hardware.trigger_delay = 0
+        hardware.set_source_trigger(
+            "VOLT", bench_config.channel_voltage(number), number
         )
-        hardware._write(f":SOUR{number}:CURR:TRIG {bench_config.current}")
+        hardware.set_source_trigger("CURR", bench_config.current, number)
         if sense is not None:
             channel.sense_enabled = False
         channel.voltage, channel.current = 0.0, bench_config.current
@@ -149,9 +145,10 @@ def test_bus_trigger(hardware, bench_config):
         channel.voltage, channel.current = voltage, current
         if sense is not None:
             channel.sense_enabled = sense
-        for command, value in settings.items():
-            hardware._write(f"{command} {value}")
-        if selected is not None:
+        for func, level in levels.items():
+            hardware.set_source_trigger(func, level, number)
+        hardware.trigger_source, hardware.trigger_delay = source, delay
+        if multi_channel:
             hardware.trigger_coupling_channels = (
                 [item.split(":")[0] for item in coupling]
                 if isinstance(coupling, list)

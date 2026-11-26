@@ -35,6 +35,8 @@ testpaths = ["tests"]
 addopts = "--strict-markers"
 markers = [
   "hardware: opt-in tests requiring a real instrument and explicit configuration",
+  "supported_on(feature): skip unless the guide applies the feature to the bench model/channel",
+  "requires_option(name): skip unless *OPT? reports the named instrument option",
 ]
 
 [tool.coverage.run]

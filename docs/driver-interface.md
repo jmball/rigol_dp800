@@ -28,19 +28,27 @@ changing channel selection. Bounds are settable values, which can exceed nominal
 ratings. Single-channel models report their currently selected output range;
 negative outputs have numerically ordered voltage bounds, such as `(-32.0, 0.0)`.
 These properties are read-only and uncached, so reconnects and range changes are
-reflected on the next access. An unavailable channel raises `ValueError` before
-its source is queried. Other channel operations leave availability enforcement
-to the instrument.
+reflected on the next access. All explicitly addressed channel operations check
+the connected model's availability before sending their commands. Invalid types
+and numbers outside 1–3 fail before I/O; unavailable channels raise `ValueError`
+after identity discovery. Optional omitted channels use the instrument's current
+selection without discovery. Channel views themselves remain stable and perform
+no I/O when created or accessed.
 
 Shutdown reads identity to disable physical outputs on known models, without
-caching a channel count. Unknown models or failed discovery fall back to all
-three outputs; cleanup still closes the resource after errors.
+caching a channel count. Unknown models or malformed identities fall back to all
+three outputs. Transport failures close and invalidate the connection without
+further shutdown commands; reported instrument errors allow remaining shutdown
+commands to be attempted.
 
 Use a full VISA resource name. ASRL serial names use the guide's CRLF end marker;
 other transports use LF. Conflicting framing options warn and are ignored.
 
-All operations require a connection except access to the channel mapping and
-channel numbers. Setters perform I/O immediately. Reads that consume a register
+All operations require a connection except access to the channel mapping,
+channel numbers and the read-only `connected` property. `connected` reports
+whether a session is open, from a successful `connect()` until `disconnect()` or
+a transport failure closes it; it performs no I/O and does not confirm that the
+instrument is still reachable. Setters perform I/O immediately. Reads that consume a register
 or queue remain methods rather than properties. File paths and display text are
 ASCII strings; quotes are escaped and line terminators are rejected. Timer and
 delay reads decode and validate the guide's ASCII block headers.
@@ -94,7 +102,7 @@ Scalar properties with bound-query support use `get_limit(property_name, limit)`
 
 - `analyzer_start_time`, `analyzer_end_time`, `delay_stop_condition`;
 - `monitor_current`, `monitor_voltage`, `monitor_power`;
-- `brightness`, `contrast`;
+- `brightness`, `rgb_brightness`, `contrast`;
 - `timer_template_min`, `timer_template_max`, `timer_template_object`;
 - `trigger_delay`.
 
@@ -115,8 +123,9 @@ before changing its period or destination. Open the resulting ROF file with
 `clear_ocp_label()` and `clear_ovp_label()` only clear alarm labels.
 **`clear_ocp_circuit()` and `clear_ovp_circuit()` also re-enable the output.** They
 are separate operations, not aliases. Remove the fault before using a circuit
-clear. Single-channel `output_range` accepts `LOW`/`HIGH`; its getter returns
-the rated voltage/current string. Triggering and starting timers/delayers can
+clear. Single-channel `output_range` accepts `LOW`/`HIGH` or the model's rated range
+names (`P8V`/`P20V` on DP813, `P20V`/`P40V` on DP811); its getter returns the
+rated voltage/current string. Triggering and starting timers/delayers can
 change output settings/state. LAN changes are staged until `apply_lan_config()`,
 which may interrupt the connection. File writes, preset commits and option
 installation can persist on the instrument.
@@ -134,11 +143,19 @@ These guide variants share one public implementation:
 | Output timer and `:TIMEr` entry/state commands | `set/get_timer_parameters()`, `timer_enabled` |
 | Local state save/recall commands and `*SAV`/`*RCL` | `save_setup()`, `recall_setup()`, `save_named_setup()` |
 | External store/recall and `:MMEMory` load/store | `save_file()`, `recall_file()` |
-| `:SYST:BRIGhtness`, `:SYST:RGBBrightness` | `brightness` |
 | `:SYST:KLOC:STAT`, `:SYST:RWLock` | `keylock_enabled` |
 | `:TRIG:IN:CHTYpe`, `:TRIG:SOURce` | `trigger_source` |
 | `:TRIG:IN:IMMediate`, `:INITiate` | `init_trigger()` |
 | Trigger input voltage/current and source triggered levels | `set/get_source_trigger()` / channel triggered properties |
+
+The guide documents `:SYST:BRIGhtness` and `:SYST:RGBBrightness` separately and
+does not state that they are equivalent, so `brightness` and `rgb_brightness`
+are separate properties. Their relationship on hardware has not been verified.
+
+`language` follows the guide's asymmetric format: assign a setting code (`EN`,
+`CH`, `JAP`, `KOR`, `GER`, `POR`, `POL`, `CHT` or `RUS`); reading returns the
+query's language name, such as `English` or `Chinese(T)`. `LANGUAGE_NAMES` maps
+codes to names. Other values are rejected before I/O.
 
 ## Apply commands and response types
 
@@ -168,7 +185,7 @@ The virtual supply creates no VISA manager, network connection, thread or host
 file. It uses the hardware API and response parsers with an in-memory transport.
 Physical channel availability and nominal ranges follow the configured model;
 the public channel mapping still contains stable views numbered 1–3. Unsupported
-channels report instrument errors. State and files survive reconnects; disconnect
+channels are rejected by the shared availability validation. State and files survive reconnects; disconnect
 leaves outputs and active functions off. Reset restores operating settings while
 preserving saved files. Two virtual instances never share state.
 

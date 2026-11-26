@@ -21,6 +21,24 @@ CHANNEL_COUNTS = {
     "DP832": 3,
 }
 
+ALL_CHANNELS = None
+
+# Model/channel applicability stated in the programming guide, by base model.
+# Channels are physical channel numbers; ALL_CHANNELS means every channel.
+# Select a feature with @pytest.mark.supported_on("<feature>").
+MODEL_SUPPORT = {
+    # Channel selection/coupling and the instrument/channel SUMMARY registers.
+    "multi_channel": {
+        model: ALL_CHANNELS for model in ("DP821", "DP822", "DP831", "DP832")
+    },
+    # :OUTPut:RANGe, :VOLTage:RANGe and :STATus:QUEStionable:CONDition?.
+    "single_channel": {model: ALL_CHANNELS for model in ("DP811", "DP813")},
+    # :OUTPut:SENSe.
+    "remote_sense": {"DP811": (1,), "DP813": (1,), "DP821": (2,), "DP822": (2,)},
+    # :OUTPut:TRACk and :PRESet:USER<n>:SET:TRACk.
+    "tracking": {"DP831": (2, 3), "DP832": (1, 2)},
+}
+
 
 @dataclass(frozen=True)
 class HardwareConfig:
@@ -46,13 +64,17 @@ class HardwareConfig:
     def physical_channels(self):
         return tuple(range(1, CHANNEL_COUNTS[self.base_model] + 1))
 
-    @property
-    def sense_channels(self):
-        if self.base_model in {"DP811", "DP813"}:
-            return (1,)
-        if self.base_model in {"DP821", "DP822"}:
-            return (2,)
-        return ()
+    def supports(self, feature, channel=None):
+        """Whether the guide applies a feature to this model and channel."""
+        models = MODEL_SUPPORT[feature]
+        if self.base_model not in models:
+            return False
+        channels = models[self.base_model]
+        return channel is None or channels is ALL_CHANNELS or channel in channels
+
+    def supported_channels(self, feature):
+        """Requested channels to which the guide applies a feature."""
+        return tuple(n for n in self.channels if self.supports(feature, n))
 
     def channel_voltage(self, channel):
         # DP831 CH3 is the negative output.

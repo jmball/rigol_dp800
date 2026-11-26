@@ -29,6 +29,17 @@ class TestConnection:
             "TCPIP::example::INSTR", resource_manager=self.manager, **kwargs
         )
 
+    def test_connected_reports_session_state_without_io(self):
+        assert self.driver.connected is False
+        self.connect()
+        self.resource.io_events.clear()
+        assert self.driver.connected is True
+        assert self.resource.io_events == []
+        self.driver.disconnect()
+        assert self.driver.connected is False
+        with pytest.raises(AttributeError):
+            setattr(self.driver, "connected", True)  # Read-only property.
+
     def test_import_does_not_create_resource_manager(self):
         subprocess.run(
             [
@@ -42,10 +53,10 @@ class TestConnection:
     def test_context_manager_returns_self_and_disconnects(self):
         with self.driver as driver:
             assert driver is self.driver
-            assert driver._instr is None
+            assert not driver.connected
             self.manager.open_resource.assert_not_called()
             self.connect()
-        assert self.driver._instr is None
+        assert not self.driver.connected
         assert self.resource.closed == 1
         assert self.resource.commands == [
             "*IDN?",
@@ -63,7 +74,7 @@ class TestConnection:
             with self.driver:
                 raise error
         assert raised.value is error
-        assert self.driver._instr is None
+        assert not self.driver.connected
         assert self.resource.closed == 1
 
     def test_disconnected_context_manager_does_not_create_manager(self):
@@ -164,7 +175,7 @@ class TestConnection:
             ":SYST:LOC",
         ]
         assert self.resource.closed == 1
-        assert self.driver._instr is None
+        assert not self.driver.connected
         self.manager.close.assert_not_called()
 
     def test_reconnect_after_disconnect(self):
@@ -198,7 +209,7 @@ class TestConnection:
                     else:
                         self.driver.connect("TCPIP::example::INSTR")
                 assert raised.value is error
-                assert self.driver._instr is None
+                assert not self.driver.connected
                 assert self.resource.closed == 0
                 self.manager.close.assert_not_called()
 
@@ -213,7 +224,7 @@ class TestConnection:
             self.connect(timeout=500)
         assert raised.value is error
         assert self.resource.closed == 1
-        assert self.driver._instr is None
+        assert not self.driver.connected
         self.manager.close.assert_not_called()
         replacement = FakeResource()
         self.manager.open_resource.return_value = replacement
@@ -240,7 +251,7 @@ class TestConnection:
         with pytest.raises(TypeError):
             self.connect()
         resource.close.assert_called_once_with()
-        assert self.driver._instr is None
+        assert not self.driver.connected
 
     def test_resource_kwargs_are_forwarded_without_driver_validation(self):
         self.manager.open_resource.side_effect = None
@@ -262,7 +273,7 @@ class TestConnection:
         )
         assert self.driver._instr is self.resource
 
-    def test_disconnect_attempts_all_commands_and_closes_after_io_failure(self):
+    def test_disconnect_stops_commands_and_preserves_transport_failure(self):
         self.connect()
         error = OSError("Output disable failed")
         self.resource.write_errors[":OUTP  CH1,OFF"] = error
@@ -273,20 +284,15 @@ class TestConnection:
             with pytest.raises(OSError) as raised:
                 self.driver.disconnect()
         assert self.caplog.records
-        command_log = next(
-            (
-                record
-                for record in self.caplog.records
-                if "Additional disconnect error" in record.getMessage()
-            )
+        assert any(
+            "Failed to close resource" in record.getMessage()
+            for record in self.caplog.records
         )
-        assert ":SYST:LOC" in command_log.getMessage()
-        assert command_log.exc_info[1] is self.resource.write_errors[":SYST:LOC"]
         assert raised.value is error
-        assert ":OUTP  CH3,OFF" in self.resource.commands
-        assert ":SYST:LOC" in self.resource.commands
+        assert ":OUTP  CH3,OFF" not in self.resource.commands
+        assert ":SYST:LOC" not in self.resource.commands
         assert self.resource.closed == 1
-        assert self.driver._instr is None
+        assert not self.driver.connected
         self.manager.close.assert_not_called()
         self.driver.disconnect()
 
@@ -297,7 +303,7 @@ class TestConnection:
         with pytest.raises(OSError):
             self.driver.disconnect()
         self.manager.close.assert_not_called()
-        assert self.driver._instr is None
+        assert not self.driver.connected
 
     def test_disconnected_io_raises_clear_error(self):
         with pytest.raises(RuntimeError, match="not connected"):
@@ -348,12 +354,12 @@ def test_shutdown_addresses_physical_channels(fake_visa, model, count):
         *[f":OUTP  CH{channel},OFF" for channel in range(1, count + 1)],
         ":SYST:LOC",
     ]
-    assert resource.closed == 1 and driver._instr is None
+    assert resource.closed == 1 and not driver.connected
     assert not hasattr(driver, "_channel_count")
     manager.close.assert_not_called()
 
 
-def test_shutdown_discovery_failure_still_attempts_all_outputs(fake_visa):
+def test_shutdown_transport_failure_closes_without_more_commands(fake_visa):
     driver, resource, manager = fake_visa
     driver.connect("fake", resource_manager=manager)
     original_query = resource.query
@@ -364,14 +370,10 @@ def test_shutdown_discovery_failure_still_attempts_all_outputs(fake_visa):
         return original_query(command, delay)
 
     resource.query = query
-    driver.disconnect()
-    assert resource.commands == [
-        ":OUTP  CH1,OFF",
-        ":OUTP  CH2,OFF",
-        ":OUTP  CH3,OFF",
-        ":SYST:LOC",
-    ]
-    assert resource.closed == 1 and driver._instr is None
+    with pytest.raises(OSError, match="Identity read failed"):
+        driver.disconnect()
+    assert resource.commands == []
+    assert resource.closed == 1 and not driver.connected
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import pyvisa
 
-from dp800 import DP800Channel, InstrumentError
+from dp800 import LANGUAGE_NAMES, DP800Channel, InstrumentError
 from virtual_dp800 import DP800
 
 
@@ -37,10 +37,19 @@ def test_context_manager_and_disconnected_guards(exceptional):
                 raise error
     except ValueError as raised:
         assert exceptional and raised is error
-    assert not driver._connected
+    assert not driver.connected
     driver.disconnect()
     with pytest.raises(RuntimeError):
         _ = driver.channels[1].voltage
+
+
+def test_connected_follows_virtual_lifecycle():
+    driver = DP800()
+    assert driver.connected is False
+    driver.connect("virtual")
+    assert driver.connected is True
+    driver.disconnect()
+    assert driver.connected is False
 
 
 def test_connection_uses_no_manager_and_preserves_settings():
@@ -230,14 +239,14 @@ def test_protection_alarm_and_circuit_clearing_are_distinct(supply, protection):
     assert supply.get_errors() == []
 
 
-def test_unsupported_channel_reports_consumable_error():
+def test_unsupported_channel_is_rejected_before_command():
     with DP800(model="DP811") as supply:
         supply.connect("virtual")
-        with pytest.raises(InstrumentError, match="Invalid channel"):
+        with pytest.raises(ValueError, match="Channel 2 is unavailable"):
             supply.channels[2].voltage = 1.0
         assert supply.get_errors() == []
         assert supply.selected_channel == 1
-        with pytest.raises(InstrumentError):
+        with pytest.raises(ValueError, match="Channel 2 is unavailable"):
             supply.selected_channel = 2
         assert supply.selected_channel == 1
 
@@ -245,9 +254,28 @@ def test_unsupported_channel_reports_consumable_error():
 def test_error_checks_can_be_disabled():
     with DP800(check_errors=False, model="DP811") as supply:
         supply.connect("virtual")
-        supply.set_voltage(1.0, 2)
-        assert supply.get_errors() == ['-222,"Invalid channel"']
+        supply.set_voltage(1.0, 1)
         assert supply.get_errors() == []
+        assert supply.get_errors() == []
+
+
+@pytest.mark.parametrize(
+    "model,names,invalid",
+    [("DP811", ("P20V", "P40V"), "P8V"), ("DP813", ("P8V", "P20V"), "P40V")],
+)
+def test_single_channel_rated_range_names(model, names, invalid):
+    with DP800(model=model) as supply:
+        supply.connect("virtual")
+        supply.output_range = "HIGH"
+        high = supply.output_range
+        supply.output_range = names[0]
+        low = supply.output_range
+        assert low != high
+        supply.output_range = names[1]
+        assert supply.output_range == high
+        with pytest.raises(InstrumentError, match="Invalid range"):
+            supply.output_range = invalid
+        assert supply.output_range == high
 
 
 @pytest.mark.parametrize(
@@ -357,6 +385,20 @@ def test_external_storage_is_in_memory_and_restores_state(supply):
     supply.delete_file("test.RSF")
     assert supply.directory_entries == []
     assert supply.available_disks == ["D:\\"]
+
+
+def test_external_folders_must_be_empty_to_delete(supply):
+    supply.make_directory("D:\\bench")
+    supply.directory = "D:\\bench"
+    supply.save_file("RSF", "test.RSF")
+    supply.directory = "D:\\"
+    with pytest.raises(InstrumentError, match="not empty"):
+        supply.delete_file("bench")
+    supply.directory = "D:\\bench"
+    supply.delete_file("test.RSF")
+    supply.directory = "D:\\"
+    supply.delete_file("bench")
+    assert "bench" not in supply.directory_entries
 
 
 def test_preset_edit_commit_apply_and_channel_isolation(supply):
@@ -600,3 +642,20 @@ def test_voltage_tracking_supports_the_correct_channel_pair(model, pair):
         assert supply.channels[pair[1]].tracking_enabled
         supply.channels[pair[0]].voltage = 2.0
         assert abs(supply.channels[pair[1]].voltage) == 2.0
+
+
+def test_language_codes_read_back_as_guide_names(supply):
+    for code, name in LANGUAGE_NAMES.items():
+        supply.language = code
+        assert supply.language == name
+
+
+@pytest.mark.parametrize("name", ["brightness", "rgb_brightness", "contrast"])
+def test_display_levels_follow_guide_range(supply, name):
+    original = getattr(supply, name)
+    assert supply.get_limit(name, "MIN") == 1.0
+    assert supply.get_limit(name, "MAX") == 100.0
+    for value in (0, 101):
+        with pytest.raises(InstrumentError, match="out of range"):
+            setattr(supply, name, value)
+    assert getattr(supply, name) == original

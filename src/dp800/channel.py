@@ -17,9 +17,9 @@ class DP800Channel:
     All hardware settings and measurements perform VISA I/O. Each operation
     addresses this channel explicitly without changing selected_channel.
     Objects remain usable after reconnecting the parent and address its current
-    instrument. Channel numbers are limited to 1 - 3. Limit properties discover
-    channel availability; settings and measurements leave enforcement to the
-    instrument.
+    instrument. Channel numbers are limited to 1 - 3. Every operation checks
+    that the current connected model supports this channel before sending a
+    channel-specific command.
 
     Parameters
     ----------

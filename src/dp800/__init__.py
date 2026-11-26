@@ -15,6 +15,7 @@ from dp800.dp800 import InstrumentError as InstrumentError
 from .channel import DP800Channel as DP800Channel
 from .dp800 import DP800 as DP800
 from .dp800 import ENCODING as ENCODING
+from .dp800 import LANGUAGE_NAMES as LANGUAGE_NAMES
 from .dp800 import NOT_CONNECTED_MESSAGE as NOT_CONNECTED_MESSAGE
 from .dp800 import PROTOCOL_RESOURCE_SETTINGS as PROTOCOL_RESOURCE_SETTINGS
 from .dp800 import READ_TERMINATION as READ_TERMINATION

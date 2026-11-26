@@ -60,6 +60,22 @@ def _protocol_settings(resource_name: str) -> Mapping[str, str]:
     return PROTOCOL_RESOURCE_SETTINGS
 
 
+# :SYSTem:LANGuage:TYPE setting codes and the names its query returns.
+LANGUAGE_NAMES: Final = MappingProxyType(
+    {
+        "EN": "English",
+        "CH": "Chinese",
+        "JAP": "Japanese",
+        "KOR": "Korean",
+        "GER": "German",
+        "POR": "Portuguese",
+        "POL": "Polish",
+        "CHT": "Chinese(T)",
+        "RUS": "Russian",
+    }
+)
+
+
 def _token(value: str) -> str:
     """Encode one unquoted SCPI token without permitting command chaining."""
     if not value or any(char in value for char in ',;\r\n"'):
@@ -177,6 +193,21 @@ class DP800:
 
     # --- Connection lifecycle ---
 
+    @property
+    def connected(self) -> bool:
+        """Whether the driver holds an open instrument session.
+
+        True from a successful connect() until disconnect() or until a transport
+        failure closes the session. Reading this performs no I/O, so it does not
+        confirm that the instrument is still reachable.
+
+        Returns
+        -------
+        connected : bool
+            Whether a session is open.
+        """
+        return self._instr is not None
+
     def connect(
         self,
         resource_name: str,
@@ -252,8 +283,12 @@ class DP800:
             self._instr = resource
             self.get_errors()
         except BaseException:
+            close_resource = resource is not None and (
+                self._instr is resource
+                or not isinstance(resource, MessageBasedResource)
+            )
             self._instr = None
-            if resource is not None:
+            if close_resource and resource is not None:
                 try:
                     resource.close()
                 except Exception:
@@ -269,8 +304,9 @@ class DP800:
         Already disconnected instances are a no-op. Identity is read at shutdown
         to address only physical outputs on known models. If discovery fails or
         the model is unknown, all three outputs are attempted. No channel count
-        is retained. All output-disable commands and local mode are attempted
-        even if one fails. The resource
+        is retained. Reported instrument errors allow remaining shutdown commands
+        to be attempted. A transport failure closes the connection immediately
+        without further shutdown I/O; output states then remain unverified. The resource
         is then closed, and _instr is cleared even if cleanup fails. The driver
         does not explicitly close the manager. The first error is
         re-raised after cleanup; subsequent errors are logged.
@@ -285,6 +321,8 @@ class DP800:
                 model = self.identity.split(",")[1].strip().upper().removesuffix("A")
                 channel_count = _MODEL_CHANNELS.get(model, 3)
             except Exception:
+                if self._instr is None:
+                    raise
                 logger.debug(
                     "Could not identify outputs during shutdown; attempting all three.",
                     exc_info=True,
@@ -304,10 +342,14 @@ class DP800:
                             command,
                             exc_info=True,
                         )
+                    if self._instr is None:
+                        break
         finally:
+            needs_close = self._instr is resource
             self._instr = None
             try:
-                resource.close()
+                if needs_close:
+                    resource.close()
             except Exception as exc:
                 if error is None:
                     error = exc
@@ -353,8 +395,8 @@ class DP800:
 
         Mapping entries cannot be replaced, but each channel's settings can be
         read and assigned. Objects survive reconnects and use the parent's current
-        connection. Their presence does not guarantee the instrument supports
-        that channel; unsupported commands are reported through the error queue.
+        connection. Each operation checks the current model's channel
+        availability before sending channel-specific commands.
 
         Returns
         -------
@@ -362,6 +404,54 @@ class DP800:
             Channel views keyed by one-based channel numbers.
         """
         return MappingProxyType(self._channels)
+
+    def _validate_channel(self, channel: int | None, *, required: bool = False) -> None:
+        """Validate an explicit channel before constructing channel SCPI.
+
+        Parameters
+        ----------
+        channel : int or None
+            Physical channel; None uses the instrument's selection when optional.
+        required : bool, optional
+            Reject None for operations that require an explicit channel.
+        """
+        if channel is None:
+            if required:
+                raise TypeError("Channel must be an integer.")
+            return
+        if isinstance(channel, bool) or not isinstance(channel, int):
+            raise TypeError("Channel must be an integer.")
+        if not 1 <= channel <= 3:
+            raise ValueError("Channel must be in the range 1 - 3.")
+        available = self.available_channels
+        if channel not in available:
+            raise ValueError(
+                f"Channel {channel} is unavailable; available channels are {available}."
+            )
+
+    def _validate_channel_names(self, values: str | list[str]) -> None:
+        """Validate channel-name operands while preserving other SCPI tokens.
+
+        Parameters
+        ----------
+        values : str or list[str]
+            Channel names or documented selection tokens. CHn names may include
+            a rating suffix from an instrument response.
+        """
+        names = values.split(",") if isinstance(values, str) else values
+        requested = []
+        for name in names:
+            if not isinstance(name, str):
+                raise TypeError("Channel names must be strings.")
+            _token(name)
+            token = name.strip().upper()
+            if token.startswith("CH"):
+                suffix = token[2:].partition(":")[0]
+                if suffix not in ("1", "2", "3"):
+                    raise ValueError(f"Invalid channel name: {name!r}.")
+                requested.append(int(suffix))
+        for channel in dict.fromkeys(requested):
+            self._validate_channel(channel)
 
     def _get_channel_limits(
         self, channel: int, quantity: Literal["VOLT", "CURR"]
@@ -380,11 +470,7 @@ class DP800:
         limits : tuple[float, float]
             Numerically ordered bounds, including for negative-voltage outputs.
         """
-        available = self.available_channels
-        if channel not in available:
-            raise ValueError(
-                f"Channel {channel} is unavailable; available channels are {available}."
-            )
+        self._validate_channel(channel, required=True)
         first = _number(self._query(f":SOUR{channel}:{quantity}? MIN"))
         second = _number(self._query(f":SOUR{channel}:{quantity}? MAX"))
         return min(first, second), max(first, second)
@@ -396,6 +482,8 @@ class DP800:
 
         A successful transport write is followed by error-queue draining. The
         command may have executed even if the subsequent diagnostic query fails.
+        A transport write failure closes and invalidates the connection without
+        retrying the command or changing instrument settings.
 
         Parameters
         ----------
@@ -409,7 +497,18 @@ class DP800:
         """
         if self._instr is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
-        count = self._instr.write(command)
+        resource = self._instr
+        try:
+            count = resource.write(command)
+        except (pyvisa.errors.VisaIOError, OSError):
+            self._instr = None
+            try:
+                resource.close()
+            except Exception:
+                logger.warning(
+                    "Failed to close resource after write failure.", exc_info=True
+                )
+            raise
         self._check_errors()
         return count
 
@@ -420,16 +519,17 @@ class DP800:
         the configured PyVISA settings. Instrument errors are chained from the
         original communication error.
         Empty, malformed, or failed diagnostics preserve the original exception.
-        This recovery attempt does not guarantee response synchronization.
+        An unresolved transport failure closes and invalidates the connection.
+        Closing the session does not guarantee recovery of the instrument itself.
         Set check_errors=False for error-queue queries to prevent recursion in
-        both normal checking and timeout diagnostics.
+        both normal checking and failure diagnostics.
 
         Parameters
         ----------
         command : str
             SCPI command to send to the instrument.
         check_errors : bool, optional
-            Whether to inspect the error queue after a response or a timeout.
+            Whether to inspect the error queue after a response, timeout, or I/O error.
             Defaults to True; get_errors() disables it for its own queries.
 
         Returns
@@ -439,20 +539,34 @@ class DP800:
         """
         if self._instr is None:
             raise RuntimeError(NOT_CONNECTED_MESSAGE)
+        resource = self._instr
         try:
-            response = self._instr.query(command)
-        except pyvisa.errors.VisaIOError as original:
-            if not check_errors or original.error_code not in (
-                pyvisa.constants.StatusCode.error_timeout,
-                pyvisa.constants.StatusCode.error_io,
+            response = resource.query(command)
+        except (pyvisa.errors.VisaIOError, OSError, UnicodeError) as original:
+            errors = []
+            if (
+                check_errors
+                and isinstance(original, pyvisa.errors.VisaIOError)
+                and original.error_code
+                in (
+                    pyvisa.constants.StatusCode.error_timeout,
+                    pyvisa.constants.StatusCode.error_io,
+                )
             ):
-                raise
-            try:
-                errors = self.get_errors()
-            except Exception:
-                errors = []
+                try:
+                    errors = self.get_errors()
+                except Exception:
+                    pass
             if errors:
                 raise InstrumentError("\n".join(errors)) from original
+            if self._instr is resource:
+                self._instr = None
+                try:
+                    resource.close()
+                except Exception:
+                    logger.warning(
+                        "Failed to close resource after query failure.", exc_info=True
+                    )
             raise
         if check_errors:
             self._check_errors()
@@ -641,6 +755,7 @@ class DP800:
             Value to set the current of the selected channel to. 'MIN', 'MAX', and
             'DEF' denote the minimum, maximum, and default settings respectively.
         """
+        self._validate_channel(channel)
 
         if current is not None and voltage is None:
             raise ValueError("A voltage is required when setting current with APPLy.")
@@ -674,6 +789,7 @@ class DP800:
             A scalar for a specified function, a pair of voltage and current for a
             bare query, or a four item tuple for an explicit channel query.
         """
+        self._validate_channel(channel)
         if function is not None and channel is None:
             raise ValueError("Specify a channel when querying an APPLy function.")
         command = ":APPL?" + (f" CH{channel}" if channel is not None else "")
@@ -1316,6 +1432,7 @@ class DP800:
         channels : 'ALL', 'NONE', or list containing 'CH1', 'CH2', 'CH3'
             Trigger coupling channels. If list, should contain at least two channels.
         """
+        self._validate_channel_names(channels)
         cmd = ":INST:COUP "
         cmd += ",".join(channels) if isinstance(channels, list) else channels
         self._write(cmd)
@@ -1361,6 +1478,7 @@ class DP800:
         channel : int
             Channel number.
         """
+        self._validate_channel(channel, required=True)
         self._write(f":INST CH{channel}")
 
     # --- LIC commands ---
@@ -1399,6 +1517,7 @@ class DP800:
         values : str or list of str
             Measurement response string(s), without numeric conversion.
         """
+        self._validate_channel(channel)
         cmd = ":MEAS"
         if func is not None:
             cmd += f":{func}"
@@ -1790,6 +1909,7 @@ class DP800:
             Output mode: 'CV', 'CC', or 'UR' representing constant voltage, constant
             current, or unregulated, respectively.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:MODE?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1821,6 +1941,7 @@ class DP800:
         ocp_alarm : bool
             If True, overcurrent protection value has been exceeded.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP:ALAR?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1835,6 +1956,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP:CLEAR"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1853,6 +1975,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP "
         if channel is not None:
             cmd += f"CH{channel},"
@@ -1878,6 +2001,7 @@ class DP800:
         enable : bool
             Enabled/disabled state of overcurrent protection function.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1899,6 +2023,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP:VAL "
         if channel is not None:
             cmd += f"CH{channel},"
@@ -1926,6 +2051,7 @@ class DP800:
         value : float
             Overcurrent protection value.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OCP:VAL?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1960,6 +2086,7 @@ class DP800:
         ovp_alarm : bool
             If True, overvoltage protection value has been exceeded.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP:ALAR?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1974,6 +2101,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP:CLEAR"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -1992,6 +2120,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP "
         if channel is not None:
             cmd += f"CH{channel},"
@@ -2017,6 +2146,7 @@ class DP800:
         enable : bool
             Enabled/disabled state of overvoltage protection function.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -2038,6 +2168,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP:VAL "
         if channel is not None:
             cmd += f"CH{channel},"
@@ -2065,6 +2196,7 @@ class DP800:
         value : float
             Overvoltage protection value.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:OVP:VAL?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -2087,6 +2219,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:SENS "
         if channel is not None:
             cmd += f"CH{channel},"
@@ -2111,6 +2244,7 @@ class DP800:
         enable : bool
             Enabled/disabled state of the sense function.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP:SENS?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -2127,6 +2261,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP "
         if channel is not None:
             cmd += f" CH{channel},"
@@ -2149,6 +2284,7 @@ class DP800:
         enable : bool
             Enabled/disabled state of the channel output.
         """
+        self._validate_channel(channel)
         cmd = ":OUTP?"
         if channel is not None:
             cmd += f" CH{channel}"
@@ -2157,24 +2293,31 @@ class DP800:
 
     @property
     def output_range(self) -> str:
-        """Single-channel voltage/current range; assign LOW or HIGH.
+        """Selected output range of a single-channel model.
+
+        Applies to DP811/DP811A and DP813/DP813A only.
 
         Returns
         -------
         value : str
-            Single-channel voltage/current range; assign LOW or HIGH.
+            Rated voltage/current of the selected range, for example "20V/10A".
         """
         response = self._query(":OUTP:RANG?")
         return response.strip()
 
     @output_range.setter
     def output_range(self, value: str) -> None:
-        """Set single-channel voltage/current range; assign LOW or HIGH.
+        """Select the output range of a single-channel model.
+
+        LOW selects range 1 and HIGH range 2. Rated names are also accepted: P8V
+        (LOW) or P20V (HIGH) on DP813/DP813A, and P20V (LOW) or P40V (HIGH) on
+        DP811/DP811A. The value is sent unchanged; the instrument enforces
+        model applicability.
 
         Parameters
         ----------
-        value : str
-            Single-channel voltage/current range; assign LOW or HIGH.
+        value : {"LOW", "HIGH", "P8V", "P20V", "P40V"}
+            Range selector.
         """
         self._write(":OUTP:RANG " + _token(value))
 
@@ -2188,6 +2331,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         command = ":OUTP:TRAC"
         command += (f" CH{channel}," if channel is not None else " ") + (
             "ON" if enabled else "OFF"
@@ -2207,6 +2351,7 @@ class DP800:
         value : bool
             Query tracking state; unsupported channels return False.
         """
+        self._validate_channel(channel)
         command = ":OUTP:TRAC?"
         command += f" CH{channel}" if channel is not None else ""
         response = self._query(command).strip()
@@ -2581,6 +2726,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = f":CURR {current}"
         if channel is not None:
             cmd = f":SOUR{channel}" + cmd
@@ -2599,6 +2745,7 @@ class DP800:
         current : float
             Current setting.
         """
+        self._validate_channel(channel)
         cmd = ":CURR?"
         if channel is not None:
             cmd = f":SOUR{channel}" + cmd
@@ -2621,6 +2768,7 @@ class DP800:
         channel : int, optional
             Channel to select. If omitted, currently selected channel is used.
         """
+        self._validate_channel(channel)
         cmd = f":VOLT {voltage}"
         if channel is not None:
             cmd = f":SOUR{channel}" + cmd
@@ -2639,6 +2787,7 @@ class DP800:
         voltage : float
             Voltage setting.
         """
+        self._validate_channel(channel)
         cmd = ":VOLT?"
         if channel is not None:
             cmd = f":SOUR{channel}" + cmd
@@ -2658,6 +2807,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         command = _source(":CURR:STEP", channel)
         self._write(f"{command} {value}")
 
@@ -2679,6 +2829,7 @@ class DP800:
         value : float
             Query current increment size.
         """
+        self._validate_channel(channel)
         return _number(
             self._query(_source(":CURR:STEP?", channel) + (" DEF" if default else ""))
         )
@@ -2695,6 +2846,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         command = _source(":VOLT:STEP", channel)
         self._write(f"{command} {value}")
 
@@ -2716,6 +2868,7 @@ class DP800:
         value : float
             Query voltage increment size.
         """
+        self._validate_channel(channel)
         return _number(
             self._query(_source(":VOLT:STEP?", channel) + (" DEF" if default else ""))
         )
@@ -2728,6 +2881,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         self._write(_source(":CURR:PROT:CLE", channel))
 
     def clear_ovp_circuit(self, channel: int | None = None) -> None:
@@ -2738,6 +2892,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         self._write(_source(":VOLT:PROT:CLE", channel))
 
     def set_source_trigger(
@@ -2757,6 +2912,7 @@ class DP800:
         channel : int or None, optional
             Physical channel, or selected channel if omitted.
         """
+        self._validate_channel(channel)
         if func not in ("CURR", "VOLT"):
             raise ValueError("func must be CURR or VOLT.")
         command = _source(f":{func}:TRIG", channel)
@@ -2785,6 +2941,7 @@ class DP800:
         value : float
             Query a triggered current or voltage level.
         """
+        self._validate_channel(channel)
         if func not in ("CURR", "VOLT"):
             raise ValueError("func must be CURR or VOLT.")
         command = _source(f":{func}:TRIG", channel)
@@ -2883,6 +3040,7 @@ class DP800:
         value : int
             Read a physical channel questionable register.
         """
+        self._validate_channel(channel, required=True)
         return int(self._query(f":STAT:QUES:INST:ISUM{channel}:COND?"))
 
     def get_channel_questionable_enable(self, channel: int) -> int:
@@ -2898,6 +3056,7 @@ class DP800:
         value : int
             Read a physical channel questionable register.
         """
+        self._validate_channel(channel, required=True)
         return int(self._query(f":STAT:QUES:INST:ISUM{channel}:ENAB?"))
 
     def get_channel_questionable_event(self, channel: int) -> int:
@@ -2913,6 +3072,7 @@ class DP800:
         value : int
             Read and consume a physical channel questionable register.
         """
+        self._validate_channel(channel, required=True)
         return int(self._query(f":STAT:QUES:INST:ISUM{channel}:EVEN?"))
 
     def set_channel_questionable_enable(self, value: int, channel: int) -> None:
@@ -2925,6 +3085,7 @@ class DP800:
         channel : int
             One-based physical channel number.
         """
+        self._validate_channel(channel, required=True)
         self._write(f":STAT:QUES:INST:ISUM{channel}:ENAB {value}")
 
     # --- STORe commands ---
@@ -2988,6 +3149,32 @@ class DP800:
             brightness.
         """
         self._write(":SYST:BRIG " + str(value))
+
+    @property
+    def rgb_brightness(self) -> int:
+        """RGB screen brightness, 1–100 percent.
+
+        The guide documents this separately from brightness without stating
+        whether the two settings are equivalent.
+
+        Returns
+        -------
+        value : int
+            RGB screen brightness.
+        """
+        response = self._query(":SYST:RGBB?")
+        return int(response)
+
+    @rgb_brightness.setter
+    def rgb_brightness(self, value: int | Literal["MIN", "MAX"]) -> None:
+        """Set RGB screen brightness.
+
+        Parameters
+        ----------
+        value : int or {"MIN", "MAX"}
+            RGB screen brightness, 1–100 percent.
+        """
+        self._write(":SYST:RGBB " + str(value))
 
     @property
     def contrast(self) -> int:
@@ -3325,26 +3512,37 @@ class DP800:
 
     @property
     def language(self) -> str:
-        """Language.
+        """System language, as named by the instrument's query response.
+
+        The guide sets the language with a code but its query returns the
+        language name; LANGUAGE_NAMES maps codes to names.
 
         Returns
         -------
         value : str
-            language.
+            English, Chinese, Japanese, Korean, German, Portuguese, Polish,
+            Chinese(T) or Russian.
         """
         response = self._query(":SYST:LANG:TYPE?")
         return response.strip()
 
     @language.setter
-    def language(self, value: str) -> None:
-        """Set language.
+    def language(
+        self,
+        value: Literal["EN", "CH", "JAP", "KOR", "GER", "POR", "POL", "CHT", "RUS"],
+    ) -> None:
+        """Set the system language using the guide's setting code.
 
         Parameters
         ----------
-        value : str
-            language.
+        value : {"EN", "CH", "JAP", "KOR", "GER", "POR", "POL", "CHT", "RUS"}
+            Language code; see LANGUAGE_NAMES for the corresponding names.
         """
-        self._write(":SYST:LANG:TYPE " + _token(value))
+        if value not in LANGUAGE_NAMES:
+            raise ValueError(
+                "Language must be one of: " + ", ".join(LANGUAGE_NAMES) + "."
+            )
+        self._write(":SYST:LANG:TYPE " + value)
 
     @property
     def locked(self) -> bool:
@@ -4161,6 +4359,7 @@ class DP800:
         line : int or None, optional
             Digital line 0–3; omitted uses the selected line.
         """
+        self._validate_channel_names(value)
         address = f"D{line}" if line is not None else ""
         payload = ",".join(_token(item) for item in value)
         self._write(":TRIG:IN:SOUR " + (address + "," if address else "") + payload)
@@ -4318,6 +4517,7 @@ class DP800:
         line : int or None, optional
             Digital line 0–3; omitted uses the selected line.
         """
+        self._validate_channel_names(value)
         address = f"D{line}" if line is not None else ""
         payload = _token(value)
         self._write(":TRIG:OUT:SOUR " + (address + "," if address else "") + payload)
@@ -4535,6 +4735,7 @@ class DP800:
             "monitor_current": ":MONI:CURR",
             "monitor_power": ":MONI:POWER",
             "brightness": ":SYST:BRIG",
+            "rgb_brightness": ":SYST:RGBB",
             "contrast": ":SYST:CONT",
             "timer_template_object": ":TIME:TEMP:OBJ",
             "timer_template_max": ":TIME:TEMP:MAXV",
@@ -4550,6 +4751,7 @@ class DP800:
 __all__ = [
     "DP800",
     "InstrumentError",
+    "LANGUAGE_NAMES",
     "ENCODING",
     "WRITE_TERMINATION",
     "READ_TERMINATION",

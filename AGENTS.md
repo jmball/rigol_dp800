@@ -25,6 +25,8 @@ supplies through PyVISA. The project uses a `src/` layout and setuptools.
 - `pyproject.toml`: project metadata, Python support, dependencies (`pyvisa` and
   `pyvisa-py`), package discovery, and the PEP 517 setuptools build backend.
   There is no `setup.py` or `setup.cfg`.
+- `uv.lock`: tracked uv lockfile for the development environment. Update it with
+  `uv lock` whenever dependencies in `pyproject.toml` change.
 - `README.md`: installation and build instructions. The project is
   licensed under `GPL-3.0-or-later`; `LICENSE` contains the full GPLv3 text.
   Keep metadata and source SPDX identifiers consistent. Leave license details and
@@ -70,12 +72,9 @@ formatting, and ty provides type checking; their configuration lives in
 
 ## Setup and validation
 
-Use an isolated environment when installation is needed:
-
-```sh
-python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-```
+Use uv for development commands. `uv run --extra dev` creates or syncs the
+project environment from `pyproject.toml` and `uv.lock`; do not invoke
+`.venv/bin/...` tools directly.
 
 For a syntax check that does not import the driver or connect to hardware:
 
@@ -92,18 +91,17 @@ Always use ty for type checking and Ruff for linting and formatting. For Python
 changes, format the checkout and run all three checks before completing work:
 
 ```sh
-.venv/bin/ruff format .
-.venv/bin/ruff check .
-.venv/bin/ruff format --check .
-.venv/bin/ty check
+uv run --extra dev ruff format .
+uv run --extra dev ruff check .
+uv run --extra dev ruff format --check .
+uv run --extra dev ty check
 ```
 
 Check source, tests, and examples. Fix diagnostics rather than disabling checks
 globally; document any narrow suppression needed for deliberate invalid-input
 tests or third-party typing limitations.
 
-Run regression tests with `.venv/bin/python -m pytest`
-after installing the checkout. For driver behavior changes, use focused tests
+Run regression tests with `uv run --extra test pytest`. For driver behavior changes, use focused tests
 with a fake VISA resource that records writes and supplies query responses.
 Importing the hardware package does not create a resource manager. Inject a fake
 manager into connect() or patch `pyvisa.ResourceManager` before connecting.
@@ -116,6 +114,13 @@ must run serially against each instrument. The fixture shuts down physical
 channels even when only a subset is selected; persistent changes require flags.
 New guide-family hardware cases require --hardware-guide; persistent file and
 preset changes require the additional scratch slot/directory/preset arguments.
+Mark model/channel-restricted cases with @pytest.mark.supported_on(feature),
+using the guide-derived MODEL_SUPPORT table in tests/hardware/support.py, and
+option-dependent cases with @pytest.mark.requires_option(name). Hardware tests
+use public driver APIs, not raw SCPI. Option-dependent cases skip when *OPT? lacks the option; cases that can turn an
+output on also require --hardware-allow-output. tests/unit/test_parity.py
+compares the virtual and hardware public interfaces; keep it free of per-member
+expectations.
 Add focused command/response cases or behavior tests when extending the driver;
 avoid separate API-name inventories and per-member repetitions of wrapper tests.
 
@@ -130,9 +135,10 @@ channel used by subsequent commands that omit a channel argument. Delay cycles a
 channel-specific settings remain methods when arguments are required.
 The read-only channels mapping contains read/write DP800Channel views for numbers
 1 - 3. Constructor checks only integer type and these bounds; there is no model
-discovery when creating views, cached channel_count, or per-operation availability
-validation. The instrument
-enforces actual channel availability. Views survive reconnects and use the
+discovery when creating views or cached channel_count. Explicit channel operations
+validate types and bounds locally, then check fresh model discovery before sending
+channel commands. Omitted optional channels use the instrument's selected channel.
+Views survive reconnects and use the
 parent's current connection. Accessing channels or channel performs no I/O.
 Channel measured_* properties return floats; measure() preserves parent response
 types, including ALL response strings in both drivers.
@@ -143,7 +149,7 @@ Channel `voltage_limits` and `current_limits` check this availability and query
 explicit source MIN/MAX bounds, returning numerical (minimum, maximum) tuples
 in volts/amperes. These properties require connection, are uncached, and follow
 the selected output range on single-channel models. They do not change channel
-selection or add per-operation validation to other channel APIs.
+selection and share validation with the other explicitly addressed channel APIs.
 Channel views also delegate output mode, remote sensing, OCP/OVP enable states,
 thresholds, alarms, and alarm-label clearing. Preserve model/channel restrictions
 documented by the parent driver, while leaving enforcement to the instrument.
@@ -165,14 +171,21 @@ only the raw instrument error responses joined with newlines. A query VISA
 timeout or VI_ERROR_IO triggers best-effort diagnostics using unchanged resource
 timeout/delay settings.
 Instrument errors are chained from the original VISA error; empty, malformed, or
-failed diagnostics preserve it. No automatic retry or stream recovery occurs.
+failed diagnostics preserve it. Unresolved transport failures close the resource
+and clear _instr; subsequent commands fail locally until explicit reconnection.
+Write transport failures also invalidate the connection. Reported InstrumentError
+queue entries do not themselves close a working session. No automatic retry,
+reset, buffer clearing, or stream recovery occurs. Cleanup sends no more commands
+once a connection has been invalidated, and closes a resource only once.
 get_errors() uses _query(check_errors=False) to disable both automatic checks
 and failure diagnostics, and reads until the zero-code response. It returns raw
 nonzero responses whole, including any batched messages; the virtual equivalent
 consumes its own in-memory error queue. Successful normal queries still monitor the queue, since
 a valid reply does not guarantee no pending device errors. Mock both normal and
 error-query responses, including timeout and I/O-error recursion prevention.
-Connecting twice raises until disconnect.
+Connecting twice raises until disconnect. The read-only `connected` property
+reports whether `_instr` holds a session, performs no I/O and is inherited by
+the virtual driver; tests check connection state through it, not `_instr`.
 Opening options and resource attributes are passed directly to PyVISA for
 validation and configuration. PyVISA handles cleanup when open_resource()
 raises; failures after it returns close the resource explicitly.
@@ -181,8 +194,9 @@ managers for the connection's lifetime; the driver keeps no separate manager
 attribute and never explicitly closes managers. Injected managers stay
 caller-owned, and default managers are obtained lazily from PyVISA.
 `disconnect()` reads identity at shutdown and disables physical channels for
-known models. It falls back to all three if discovery fails or the model is
-unknown; no count is cached. It then returns to local mode, closes the resource
+known models. It falls back to all three for malformed identity or unknown models;
+transport failures instead close and invalidate the connection. No count is cached.
+When communication remains usable, it returns to local mode, closes the resource
 and clears `self._instr` even on failure.
 Repeated disconnect calls are harmless. When used as a context manager,
 __enter__ returns the instance
@@ -191,6 +205,8 @@ exceptions. The virtual driver provides the same context manager API. Account
 for disconnect side effects when designing tests. Use mocks for routine
 validation; exercise real hardware
 only within the user's authorized task and device configuration.
+Do not send invalid-channel queries in routine hardware tests. Test local public
+API rejection on hardware and use fakes for raw query/diagnostic transport faults.
 
 ## Development VM environment
 

@@ -34,16 +34,26 @@ def test_channel_limits(channel):
 
 
 def select_channel(supply, config, number):
-    if len(config.physical_channels) > 1:
+    if config.supports("multi_channel"):
         supply.selected_channel = number
+
+
+def original_selection(supply, config):
+    return supply.selected_channel if config.supports("multi_channel") else None
+
+
+def original_sense(channel, config):
+    return (
+        channel.sense_enabled
+        if config.supports("remote_sense", channel.channel)
+        else None
+    )
 
 
 def test_setpoints_and_apply(hardware, channel, bench_config):
     number = channel.channel
     original_voltage, original_current = channel.voltage, channel.current
-    selected = (
-        hardware.selected_channel if len(bench_config.physical_channels) > 1 else None
-    )
+    selected = original_selection(hardware, bench_config)
     voltage, current = bench_config.channel_voltage(number), bench_config.current
     try:
         channel.voltage, channel.current = voltage, current
@@ -85,9 +95,7 @@ def test_protection_settings_and_alarm_labels(
         getattr(channel, value_name),
         getattr(channel, enable_name),
     )
-    selected = (
-        hardware.selected_channel if len(bench_config.physical_channels) > 1 else None
-    )
+    selected = original_selection(hardware, bench_config)
     # Reuse the existing valid threshold instead of imposing model-specific ranges.
     try:
         select_channel(hardware, bench_config, channel.channel)
@@ -121,13 +129,10 @@ def test_protection_settings_and_alarm_labels(
             hardware.selected_channel = selected
 
 
+@pytest.mark.supported_on("remote_sense")
 def test_remote_sensing(hardware, channel, bench_config):
-    if channel.channel not in bench_config.sense_channels:
-        pytest.skip("remote sensing is unsupported on this model/channel")
     original = channel.sense_enabled
-    selected = (
-        hardware.selected_channel if len(bench_config.physical_channels) > 1 else None
-    )
+    selected = original_selection(hardware, bench_config)
     try:
         select_channel(hardware, bench_config, channel.channel)
         for enabled in (True, False):
@@ -143,9 +148,7 @@ def test_remote_sensing(hardware, channel, bench_config):
 
 
 def test_output_off_and_measurements(hardware, channel, bench_config):
-    selected = (
-        hardware.selected_channel if len(bench_config.physical_channels) > 1 else None
-    )
+    selected = original_selection(hardware, bench_config)
     try:
         select_channel(hardware, bench_config, channel.channel)
         channel.output_enabled = False
@@ -178,11 +181,7 @@ def test_output_on(hardware, channel, bench_config):
     if not bench_config.allow_output:
         pytest.skip("output activation requires --hardware-allow-output")
     voltage, current = channel.voltage, channel.current
-    sense = (
-        channel.sense_enabled
-        if channel.channel in bench_config.sense_channels
-        else None
-    )
+    sense = original_sense(channel, bench_config)
     try:
         if sense is not None:
             channel.sense_enabled = False
@@ -193,6 +192,33 @@ def test_output_on(hardware, channel, bench_config):
         assert math.isfinite(channel.measured_voltage)
         assert math.isfinite(channel.measured_current)
         assert math.isfinite(channel.measured_power)
+    finally:
+        channel.output_enabled = False
+        channel.voltage, channel.current = voltage, current
+        if sense is not None:
+            channel.sense_enabled = sense
+
+
+@pytest.mark.parametrize("protection", ["ocp", "ovp"])
+def test_protection_circuit_clear(
+    hardware, channel, bench_config, pytestconfig, protection
+):
+    # The guide's source protection clear also turns the channel output on.
+    if not pytestconfig.getoption("--hardware-guide"):
+        pytest.skip("extended guide cases require --hardware-guide")
+    if not bench_config.allow_output:
+        pytest.skip("circuit clearing enables output; needs --hardware-allow-output")
+    voltage, current = channel.voltage, channel.current
+    sense = original_sense(channel, bench_config)
+    try:
+        if sense is not None:
+            channel.sense_enabled = False
+        channel.voltage = bench_config.channel_voltage(channel.channel)
+        channel.current = bench_config.current
+        getattr(hardware, f"clear_{protection}_circuit")(channel.channel)
+        # Whether the output turns on without a prior trip is not documented.
+        assert isinstance(channel.output_enabled, bool)
+        assert getattr(channel, f"{protection}_tripped") is False
     finally:
         channel.output_enabled = False
         channel.voltage, channel.current = voltage, current
